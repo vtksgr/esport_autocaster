@@ -1,0 +1,23 @@
+{
+  "name": "esports-autocaster",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "dev": "cross-env VITE_DEV_SERVER_URL=http://localhost:5173 wait-on http-get://localhost:5173 && electron .",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.0.0",
+    "electron": "^37.4.0",
+    "wait-on": "^8.0.4"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.1",
+    "obs-websocket-js": "^5.0.6"
+  }
+}

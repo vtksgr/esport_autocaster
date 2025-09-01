@@ -1,0 +1,24 @@
+{
+  "name": "esports-autocaster",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -r \"npm:dev:vite\" \"npm:dev:electron\"",
+    "dev:vite": "vite",
+    "dev:electron": "npm --prefix electron run dev",
+    "build": "vite build",
+    "start": "npm run build && npm --prefix electron run start"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.12",
+    "lucide-vue-next": "^0.542.0",
+    "tailwindcss": "^4.1.12",
+    "vue": "^3.5.18"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "concurrently": "^9.2.1",
+    "vite": "^7.1.2"
+  }
+}
