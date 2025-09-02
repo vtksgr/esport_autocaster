@@ -56,12 +56,16 @@ function withLog(name, fn) {
     try {
       return await fn(event, ...args);
     } catch (err) {
-      console.error(`[IPC] ${name} failed:`, err?.message || err);
-      // Re-throw so renderer gets a rejected promise
-      throw err;
+      const detail = err && (err.stack || `${err.code ?? ""} ${err.message ?? err}`);
+      console.error(`[IPC] ${name} failed:`, detail);
+      // Send back a richer error
+      const e = new Error(`[${name}] ${err?.message || String(err)}`);
+      e.code = err?.code;
+      throw e;
     }
   };
 }
+
 
 /* ------------------------------------
    Public: register all obs:* channels
@@ -173,20 +177,11 @@ export function registerObsIpc(mainWindow) {
 
   ipcMain.handle("obs:get-scenes", withLog("obs:get-scenes", () => getScenes()));
 
-  ipcMain.handle(
-    "obs:switch-scene",
-    withLog("obs:switch-scene", (_e, sceneName) => switchScene(sceneName))
-  );
+  ipcMain.handle("obs:switch-scene", withLog("obs:switch-scene", (_e, sceneName) => switchScene(sceneName)));
 
-  ipcMain.handle(
-    "obs:startStreaming",
-    withLog("obs:startStreaming", () => startStreaming())
-  );
+  ipcMain.handle("obs:startStreaming", withLog("obs:startStreaming", () => startStreaming()));
 
-  ipcMain.handle(
-    "obs:stopStreaming",
-    withLog("obs:stopStreaming", () => stopStreaming())
-  );
+  ipcMain.handle("obs:stopStreaming",withLog("obs:stopStreaming", () => stopStreaming()));
 
   ipcMain.handle("obs:getRecordStatus", withLog("obs:getRecordStatus", () => getRecordStatus()));
 
@@ -194,7 +189,11 @@ export function registerObsIpc(mainWindow) {
 
   ipcMain.handle("obs:stopRecording", withLog("obs:stopRecording", () => stopRecording()));
 
-  ipcMain.handle("obs:getStatus", withLog("obs:getStatus", () => getStatus()));
+  ipcMain.handle("obs:getStatus", withLog("obs:getStatus", () => {
+    //avoid choise error durring app start
+    if (!isConnected()) return { outputActive: false, disconnected: true};
+    return getStatus();
+  }));
 
   
 
