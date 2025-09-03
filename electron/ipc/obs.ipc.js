@@ -27,6 +27,10 @@ import {
   startRecording, 
   stopRecording, 
   getRecordStatus,
+  
+  startVirtualCam, 
+  stopVirtualCam, 
+  getVirtualCamStatus,
 } from "../services/obs.service.js";
 
 /* ---------------------------
@@ -86,9 +90,9 @@ export function registerObsIpc(mainWindow) {
     "obs:getScenesAndSourcesForCurrentCollection",
     "obs:getScenesAndSourcesForCollection",
     "obs:setSceneCollection",
-
     "obs:get-scenes",
     "obs:switch-scene",
+
     "obs:startStreaming",
     "obs:stopStreaming",
     "obs:getStatus",
@@ -98,6 +102,10 @@ export function registerObsIpc(mainWindow) {
 
     "obs:getConfig",
     "obs:saveConfig",
+
+    "obs:startVirtualCam",
+    "obs:stopVirtualCam",
+    "obs:getVirtualCamStatus",
   ];
 
   // Hot-reload safety: clear prior handlers
@@ -172,6 +180,15 @@ export function registerObsIpc(mainWindow) {
     "obs:setSceneCollection",
     withLog("obs:setSceneCollection", (_e, { name }) => setSceneCollection(name))
   );
+/* USING OBS VIRTUAL CAM */
+ipcMain.handle("obs:startVirtualCam", withLog("obs:startVirtualCam", () => startVirtualCam()));
+ipcMain.handle("obs:stopVirtualCam",  withLog("obs:stopVirtualCam",  () => stopVirtualCam()));
+ipcMain.handle("obs:getVirtualCamStatus", withLog("obs:getVirtualCamStatus", () => {
+  if (!isConnected()) return { outputActive: false, disconnected: true };
+  return getVirtualCamStatus();
+}));
+
+
 
   /* ---- Optional / legacy wrappers ---- */
 

@@ -3,11 +3,12 @@ import ObsConnectStatus from '../ui/ObsConnectStatus.vue';
 import ObsSceneCollection from '../ui/ObsSceneCollection.vue';
 import ObsStreamController from '../ui/ObsStreamController.vue';
 import ObsRecordController from '../ui/ObsRecordController.vue';
+import ObsProgramDisplay from '../ui/ObsProgramDisplay.vue';
 
 </script>
 
 <template>
-    <div class="flex gap-4 justify-center items-start">
+    <div class="flex gap-4 justify-between items-start">
         <div>
             <ObsConnectStatus />
         </div>
@@ -16,6 +17,9 @@ import ObsRecordController from '../ui/ObsRecordController.vue';
             <ObsStreamController />
             <ObsRecordController />
         </div>
+    </div>
+    <div>
+        <ObsProgramDisplay />
     </div>
 
 </template>
