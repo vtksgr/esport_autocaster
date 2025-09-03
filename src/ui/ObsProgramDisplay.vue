@@ -1,3 +1,4 @@
+<!-- C:\comworks\esports-autocaster\src\ui\ObsProgramDisplay.vue -->
 <template>
   <div class="bg-slate-700 rounded-lg p-4 space-y-2">
     <div class="text-sm text-white/80">OBS Program Feed</div>

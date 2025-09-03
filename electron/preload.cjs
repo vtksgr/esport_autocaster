@@ -8,4 +8,9 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on("obs:state", fn);
     return () => ipcRenderer.off("obs:state", fn);
   },
+  onVirtualCamChanged: (cb) => {
+    const fn = (_evt, payload) => cb(payload); // payload: { outputActive: boolean }
+    ipcRenderer.on("obs:virtualcam:changed", fn);
+    return () => ipcRenderer.off("obs:virtualcam:changed", fn);
+  },
 });

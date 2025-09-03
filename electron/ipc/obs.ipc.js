@@ -1,7 +1,7 @@
 // electron/ipc/obs.ipc.js
 // Owns all obs:* channels + pushes live connection state to renderer(s).
 
-import { ipcMain } from "electron";
+import { ipcMain, app } from "electron";
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -180,13 +180,31 @@ export function registerObsIpc(mainWindow) {
     "obs:setSceneCollection",
     withLog("obs:setSceneCollection", (_e, { name }) => setSceneCollection(name))
   );
-/* USING OBS VIRTUAL CAM */
-ipcMain.handle("obs:startVirtualCam", withLog("obs:startVirtualCam", () => startVirtualCam()));
-ipcMain.handle("obs:stopVirtualCam",  withLog("obs:stopVirtualCam",  () => stopVirtualCam()));
-ipcMain.handle("obs:getVirtualCamStatus", withLog("obs:getVirtualCamStatus", () => {
-  if (!isConnected()) return { outputActive: false, disconnected: true };
-  return getVirtualCamStatus();
-}));
+
+    /* USING OBS VIRTUAL CAM */
+  ipcMain.handle(
+    "obs:startVirtualCam",
+    withLog("obs:startVirtualCam", async () => {
+      const res = await startVirtualCam(); // await start
+      try { mainWindow?.webContents?.send("obs:virtualcam:changed", { outputActive: true }); } catch {}
+      return res;
+    })
+  );
+
+  ipcMain.handle(
+    "obs:stopVirtualCam",
+    withLog("obs:stopVirtualCam", async () => {
+      const res = await stopVirtualCam(); // call once
+      try { mainWindow?.webContents?.send("obs:virtualcam:changed", { outputActive: false }); } catch {}
+      return res;
+    })
+  );
+
+  ipcMain.handle("obs:getVirtualCamStatus", withLog("obs:getVirtualCamStatus", () => {
+    if (!isConnected()) return { outputActive: false, disconnected: true };
+    return getVirtualCamStatus();
+  }));
+
 
 
 
@@ -221,10 +239,55 @@ ipcMain.handle("obs:getVirtualCamStatus", withLog("obs:getVirtualCamStatus", () 
     "obs:saveConfig",
     withLog("obs:saveConfig", (_e, cfg) => saveConfig(cfg))
   );
+  /* ---- Cleanup ---- */
+
+    // --- Stop Virtual Cam on app/window shutdown (and support hot-reload) ---
+  async function shutdownVirtualCam() {
+    try {
+      if (!isConnected()) return;
+      const s = await getVirtualCamStatus(); // { outputActive: boolean }
+      if (s?.outputActive) {
+        await stopVirtualCam();
+        try { mainWindow?.webContents?.send("obs:virtualcam:changed", { outputActive: false }); } catch {}
+      }
+    } catch (err) {
+      console.warn("[OBS] Failed to stop Virtual Cam during shutdown:", err?.message || err);
+    }
+  }
+
+  // Keep stable refs so we can remove listeners in cleanup
+  let didAttachShutdownHooks = false;
+  let onWindowClose = null;
+  let onBeforeQuit  = null;
+
+  function attachShutdownHooks() {
+    if (didAttachShutdownHooks) return;
+    onWindowClose = async () => { await shutdownVirtualCam(); };
+    onBeforeQuit  = async () => { await shutdownVirtualCam(); };
+    if (mainWindow) mainWindow.on("close", onWindowClose);
+    app.on("before-quit", onBeforeQuit);
+    didAttachShutdownHooks = true;
+  }
+
+  function detachShutdownHooks() {
+    if (!didAttachShutdownHooks) return;
+    if (onWindowClose && mainWindow) mainWindow.removeListener("close", onWindowClose);
+    if (onBeforeQuit) app.removeListener("before-quit", onBeforeQuit);
+    didAttachShutdownHooks = false;
+    onWindowClose = null;
+    onBeforeQuit = null;
+  }
+
+  // Attach now
+  attachShutdownHooks();
+
 
   /* ---- Cleanup ---- */
   return () => {
     unsubscribe?.();
+    detachShutdownHooks();
     CHANNELS.forEach((ch) => ipcMain.removeHandler(ch));
   };
+
+
 }
