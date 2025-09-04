@@ -8,6 +8,7 @@ const events = new EventEmitter();
 /** "connected" | "unstable" | "disconnected" */
 let state = "disconnected";
 let connected = false;
+let ready = false;
 
 let DEBUG = false;
 const COLOR = {
@@ -19,16 +20,13 @@ const COLOR = {
   cyan: "\x1b[36m",
 };
 
-function log(...args) {
-  if (DEBUG) console.log(...args);
-}
+function log(...args) {if (DEBUG) console.log(...args);}
 
 function prettyState(s) {
   if (s === "connected")   return `${COLOR.green}🟢 connected${COLOR.reset}`;
   if (s === "unstable")    return `${COLOR.yellow}🟡 unstable${COLOR.reset}`;
   return `${COLOR.gray}⚪ disconnected${COLOR.reset}`;
 }
-
 function setState(next) {
   if (state !== next) {
     const prev = state;
@@ -37,34 +35,62 @@ function setState(next) {
     events.emit("state", state);
   }
 }
+/* =========================
+   NEW: readiness helpers
+========================= */
+function setReady(val) {
+  if (ready !== !!val) {
+    ready = !!val;
+    log(`${COLOR.cyan}[OBS] ready${COLOR.reset} → ${ready ? COLOR.green + "true" : COLOR.yellow + "false"}${COLOR.reset}`);
+    events.emit("ready", ready); // renderer can subscribe
+  }
+}
+export function isReady() { return ready; }
 
-export function onState(fn) {
-  events.on("state", fn);
-  // fire current immediately for new subscribers
-  try { fn(state); } catch {}
+/** Wait until OBS scene tree is ready (after collection switch). */
+export async function waitReady({ timeout = 7000, step = 120 } = {}) {
+  const start = Date.now();
+  while (!ready) {
+    if (Date.now() - start > timeout) throw new Error("OBS is not ready to perform the request.");
+    await new Promise(r => setTimeout(r, step));
+  }
+}
+/** Retry helper for calls that might hit code 207 right after a switch. */
+export async function retry207(fn, { tries = 3, delay = 150 } = {}) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try { return await fn(); }
+    catch (e) {
+      const msg = e?.message || "";
+      if (e?.code === 207 || msg.includes("not ready")) {
+        lastErr = e;
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
+}
+/* =========================
+   Public subscriptions
+========================= */
+
+export function onState(fn) {events.on("state", fn); try { fn(state); } catch {}
   return () => events.off("state", fn);
 }
-
-export function getState() {
-  return state;
+export function onReady(fn) {events.on("ready", fn); try { fn(ready); } catch {}
+  return () => events.off("ready", fn);
 }
-
-export function isConnected() {
-  return connected;
+export function onSceneList(fn) {events.on("scene-list", fn); try { fn([]); } catch {} return () => events.off("scene-list", fn);
 }
+/* =========================
+   Connection management
+========================= */
+export function getState() {return state;}
+export function isConnected() {return connected;}
+export function getClient() {if (!connected) throw new Error("Not connected to OBS"); return obs;}
 
-export function getClient() {
-  if (!connected) throw new Error("Not connected to OBS");
-  return obs;
-}
-
-/**
- * Enable verbose console logging. Call this once from your main process.
- * Example:
- *   import { enableConsoleDebug } from "./connection/obs.connect.js";
- *   enableConsoleDebug(true);
- * Or set env: DEBUG_OBS=1
- */
 export function enableConsoleDebug(on = true) {
   DEBUG = !!on;
   if (process?.env?.DEBUG_OBS === "1") DEBUG = true;
@@ -82,12 +108,14 @@ export async function connect({ url = "ws://127.0.0.1:4455", password } = {}) {
     const { obsWebSocketVersion, negotiatedRpcVersion } = await obs.connect(url, password ?? "");
     connected = true;
     setState("connected");
+    setReady(false);
 
     log(`${COLOR.green}✅ [OBS] connected${COLOR.reset}`, { obsWebSocketVersion, negotiatedRpcVersion });
 
     // --- OBS lifecycle events ---
     obs.on("ConnectionClosed", (info) => {
       connected = false;
+      setReady(false); 
       setState("disconnected");
       console.warn(`${COLOR.red}[OBS] Connection closed${COLOR.reset}`, info || "");
     });
@@ -132,10 +160,33 @@ export async function disconnect() {
   setState("disconnected");
   log(`${COLOR.cyan}[OBS] disconnected${COLOR.reset}`);
   return { status: "ok" };
+
+  // Enter "not ready" while OBS rebuilds the scene tree
+obs.on("CurrentSceneCollectionChanging", () => {
+  setReady(false);
+});
+// When the scene list changes (new collection loaded), mark ready and push the list
+obs.on("SceneListChanged", (payload) => {
+  setReady(true);
+  try { events.emit("scene-list", payload?.scenes || []); } catch {}
+});
+// Prime readiness on first connect: try to read once; if it works, we’re ready.
+try {
+  const res = await obs.call("GetSceneList");
+  setReady(true);
+  try { events.emit("scene-list", res?.scenes || []); } catch {}
+} catch {
+  // ignore; SceneListChanged will flip ready when OBS finishes loading
+}
 }
 
 // Keep named exports (preferred), but also provide a default bundle if you like importing as an object.
-const api = { connect, disconnect, getState, isConnected, getClient, onState, enableConsoleDebug };
+const api = { 
+  connect, disconnect,
+  getState, isConnected, getClient,
+  onState, onReady, onSceneList,      // NEW exports
+  isReady, waitReady, retry207,       // NEW exports
+  enableConsoleDebug};
 export default api;
 
 // Auto-enable debug if env var is set

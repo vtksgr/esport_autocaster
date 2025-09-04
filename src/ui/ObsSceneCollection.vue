@@ -1,3 +1,4 @@
+//C:\comworks\esports-autocaster\src\ui\ObsSceneCollection.vue
 <template>
   <div class="bg-slate-700 shadow rounded p-2 space-y-3 border border-slate-600 w-110">
     <div class="flex items-center justify-between">

@@ -24,13 +24,13 @@ import {
   startStreaming,
   stopStreaming,
   getStatus,
-  startRecording, 
-  stopRecording, 
+  startRecording,
+  stopRecording,
   getRecordStatus,
-  
-  startVirtualCam, 
-  stopVirtualCam, 
+  startVirtualCam,
+  stopVirtualCam,
   getVirtualCamStatus,
+  getSourcesForScene,
 } from "../services/obs.service.js";
 
 /* ---------------------------
@@ -60,7 +60,8 @@ function withLog(name, fn) {
     try {
       return await fn(event, ...args);
     } catch (err) {
-      const detail = err && (err.stack || `${err.code ?? ""} ${err.message ?? err}`);
+      const detail =
+        err && (err.stack || `${err.code ?? ""} ${err.message ?? err}`);
       console.error(`[IPC] ${name} failed:`, detail);
       // Send back a richer error
       const e = new Error(`[${name}] ${err?.message || String(err)}`);
@@ -69,7 +70,6 @@ function withLog(name, fn) {
     }
   };
 }
-
 
 /* ------------------------------------
    Public: register all obs:* channels
@@ -93,6 +93,8 @@ export function registerObsIpc(mainWindow) {
     "obs:get-scenes",
     "obs:switch-scene",
 
+    "obs:getSourcesForScene",
+
     "obs:startStreaming",
     "obs:stopStreaming",
     "obs:getStatus",
@@ -110,6 +112,7 @@ export function registerObsIpc(mainWindow) {
 
   // Hot-reload safety: clear prior handlers
   CHANNELS.forEach((ch) => ipcMain.removeHandler(ch));
+  //console.log("[IPC] registered channels:", CHANNELS);
 
   /* ---- Connection / state ---- */
 
@@ -118,7 +121,8 @@ export function registerObsIpc(mainWindow) {
     withLog("obs:connect", async (_evt, opts = {}) => {
       const cfg = await loadConfig();
       const url = opts.url || opts.host || cfg.url || "ws://127.0.0.1:4455";
-      const supplied = typeof opts.password === "string" ? opts.password.trim() : "";
+      const supplied =
+        typeof opts.password === "string" ? opts.password.trim() : "";
       const password = supplied || cfg.password || "";
 
       console.log(
@@ -132,7 +136,10 @@ export function registerObsIpc(mainWindow) {
     })
   );
 
-  ipcMain.handle("obs:disconnect", withLog("obs:disconnect", () => obsDisconnect()));
+  ipcMain.handle(
+    "obs:disconnect",
+    withLog("obs:disconnect", () => obsDisconnect())
+  );
   ipcMain.handle("obs:isConnected", () => isConnected());
   ipcMain.handle("obs:getState", () => getState());
 
@@ -143,7 +150,7 @@ export function registerObsIpc(mainWindow) {
     mainWindow.webContents.send("obs:state", state);
   });
 
-  /* ---- Collections / Scenes ---- */
+  /* GET SCENES COLLECTION & SCENES */
 
   ipcMain.handle(
     "obs:getSceneCollections",
@@ -178,15 +185,30 @@ export function registerObsIpc(mainWindow) {
 
   ipcMain.handle(
     "obs:setSceneCollection",
-    withLog("obs:setSceneCollection", (_e, { name }) => setSceneCollection(name))
+    withLog("obs:setSceneCollection", (_e, { name }) =>
+      setSceneCollection(name)
+    )
   );
 
-    /* USING OBS VIRTUAL CAM */
+  /* GET SOURCES FOR SCENE */
+  ipcMain.handle(
+    "obs:getSourcesForScene",
+    withLog("obs:getSourcesForScene", (_e, { sceneName }) => {
+      if (!sceneName) throw new Error("sceneName is required");
+      return getSourcesForScene(sceneName);
+    })
+  );
+
+  /* USING OBS VIRTUAL CAM */
   ipcMain.handle(
     "obs:startVirtualCam",
     withLog("obs:startVirtualCam", async () => {
       const res = await startVirtualCam(); // await start
-      try { mainWindow?.webContents?.send("obs:virtualcam:changed", { outputActive: true }); } catch {}
+      try {
+        mainWindow?.webContents?.send("obs:virtualcam:changed", {
+          outputActive: true,
+        });
+      } catch {}
       return res;
     })
   );
@@ -195,75 +217,115 @@ export function registerObsIpc(mainWindow) {
     "obs:stopVirtualCam",
     withLog("obs:stopVirtualCam", async () => {
       const res = await stopVirtualCam(); // call once
-      try { mainWindow?.webContents?.send("obs:virtualcam:changed", { outputActive: false }); } catch {}
+      try {
+        mainWindow?.webContents?.send("obs:virtualcam:changed", {
+          outputActive: false,
+        });
+      } catch {}
       return res;
     })
   );
 
-  ipcMain.handle("obs:getVirtualCamStatus", withLog("obs:getVirtualCamStatus", () => {
-    if (!isConnected()) return { outputActive: false, disconnected: true };
-    return getVirtualCamStatus();
-  }));
-
-
-
+  ipcMain.handle(
+    "obs:getVirtualCamStatus",
+    withLog("obs:getVirtualCamStatus", () => {
+      if (!isConnected()) return { outputActive: false, disconnected: true };
+      return getVirtualCamStatus();
+    })
+  );
 
   /* ---- Optional / legacy wrappers ---- */
 
-  ipcMain.handle("obs:get-scenes", withLog("obs:get-scenes", () => getScenes()));
+  ipcMain.handle(
+    "obs:get-scenes",
+    withLog("obs:get-scenes", () => getScenes())
+  );
 
-  ipcMain.handle("obs:switch-scene", withLog("obs:switch-scene", (_e, sceneName) => switchScene(sceneName)));
+  ipcMain.handle(
+    "obs:switch-scene",
+    withLog("obs:switch-scene", (_e, sceneName) => switchScene(sceneName))
+  );
 
-  ipcMain.handle("obs:startStreaming", withLog("obs:startStreaming", () => startStreaming()));
+  ipcMain.handle(
+    "obs:startStreaming",
+    withLog("obs:startStreaming", () => startStreaming())
+  );
 
-  ipcMain.handle("obs:stopStreaming",withLog("obs:stopStreaming", () => stopStreaming()));
+  ipcMain.handle(
+    "obs:stopStreaming",
+    withLog("obs:stopStreaming", () => stopStreaming())
+  );
 
-  ipcMain.handle("obs:getRecordStatus", withLog("obs:getRecordStatus", () => getRecordStatus()));
+  ipcMain.handle(
+    "obs:getRecordStatus",
+    withLog("obs:getRecordStatus", () => getRecordStatus())
+  );
 
-  ipcMain.handle("obs:startRecording", withLog("obs:startRecording", () => startRecording()));
+  ipcMain.handle(
+    "obs:startRecording",
+    withLog("obs:startRecording", () => startRecording())
+  );
 
-  ipcMain.handle("obs:stopRecording", withLog("obs:stopRecording", () => stopRecording()));
+  ipcMain.handle(
+    "obs:stopRecording",
+    withLog("obs:stopRecording", () => stopRecording())
+  );
 
-  ipcMain.handle("obs:getStatus", withLog("obs:getStatus", () => {
-    //avoid choise error durring app start
-    if (!isConnected()) return { outputActive: false, disconnected: true};
-    return getStatus();
-  }));
-
-  
+  ipcMain.handle(
+    "obs:getStatus",
+    withLog("obs:getStatus", () => {
+      //avoid choise error durring app start
+      if (!isConnected()) return { outputActive: false, disconnected: true };
+      return getStatus();
+    })
+  );
 
   /* ---- Config ---- */
 
-  ipcMain.handle("obs:getConfig", withLog("obs:getConfig", () => loadConfig()));
+  ipcMain.handle(
+    "obs:getConfig",
+    withLog("obs:getConfig", () => loadConfig())
+  );
   ipcMain.handle(
     "obs:saveConfig",
     withLog("obs:saveConfig", (_e, cfg) => saveConfig(cfg))
   );
   /* ---- Cleanup ---- */
 
-    // --- Stop Virtual Cam on app/window shutdown (and support hot-reload) ---
+  // --- Stop Virtual Cam on app/window shutdown (and support hot-reload) ---
   async function shutdownVirtualCam() {
     try {
       if (!isConnected()) return;
       const s = await getVirtualCamStatus(); // { outputActive: boolean }
       if (s?.outputActive) {
         await stopVirtualCam();
-        try { mainWindow?.webContents?.send("obs:virtualcam:changed", { outputActive: false }); } catch {}
+        try {
+          mainWindow?.webContents?.send("obs:virtualcam:changed", {
+            outputActive: false,
+          });
+        } catch {}
       }
     } catch (err) {
-      console.warn("[OBS] Failed to stop Virtual Cam during shutdown:", err?.message || err);
+      console.warn(
+        "[OBS] Failed to stop Virtual Cam during shutdown:",
+        err?.message || err
+      );
     }
   }
 
   // Keep stable refs so we can remove listeners in cleanup
   let didAttachShutdownHooks = false;
   let onWindowClose = null;
-  let onBeforeQuit  = null;
+  let onBeforeQuit = null;
 
   function attachShutdownHooks() {
     if (didAttachShutdownHooks) return;
-    onWindowClose = async () => { await shutdownVirtualCam(); };
-    onBeforeQuit  = async () => { await shutdownVirtualCam(); };
+    onWindowClose = async () => {
+      await shutdownVirtualCam();
+    };
+    onBeforeQuit = async () => {
+      await shutdownVirtualCam();
+    };
     if (mainWindow) mainWindow.on("close", onWindowClose);
     app.on("before-quit", onBeforeQuit);
     didAttachShutdownHooks = true;
@@ -271,7 +333,8 @@ export function registerObsIpc(mainWindow) {
 
   function detachShutdownHooks() {
     if (!didAttachShutdownHooks) return;
-    if (onWindowClose && mainWindow) mainWindow.removeListener("close", onWindowClose);
+    if (onWindowClose && mainWindow)
+      mainWindow.removeListener("close", onWindowClose);
     if (onBeforeQuit) app.removeListener("before-quit", onBeforeQuit);
     didAttachShutdownHooks = false;
     onWindowClose = null;
@@ -281,13 +344,10 @@ export function registerObsIpc(mainWindow) {
   // Attach now
   attachShutdownHooks();
 
-
   /* ---- Cleanup ---- */
   return () => {
     unsubscribe?.();
     detachShutdownHooks();
     CHANNELS.forEach((ch) => ipcMain.removeHandler(ch));
   };
-
-
 }
