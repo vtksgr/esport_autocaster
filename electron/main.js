@@ -1,12 +1,19 @@
-// electron/main.js
+// C:\comworks\esports-autocaster\electron\main.js
 import "dotenv/config";
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {registerObsIpc} from "./ipc/obs.ipc.js";               // your app-level IPC
-import { enableConsoleDebug, isConnected, connect as connectOBS, disconnect as disconnectOBS } from "./connection/obs.connect.js";
+import {  getClient, enableConsoleDebug, isConnected, connect as connectOBS, disconnect as disconnectOBS } from "./connection/obs.connect.js";
 import { startVirtualCam, stopVirtualCam } from "./services/obs.virtualcam.service.js";
+
+/* ------------------
+OBS Ops Log 
+---------------------*/
+//import { registerOpsLogIpc } from "./ipc/opslog.ipc.js";          
+import { attachOpsLog } from "./services/obs.opslog.service.js";
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,7 +25,41 @@ let mainWindow;
 let cleanupIpc;
 let isShuttingDown = false;
 
-function createMainWindow() {
+/* ------------
+OBS Ops log
+---------------*/
+
+// ADD: attach ops-log exactly once after OBS is connected
+let __opsLogAttached = false;
+async function attachOpsLogOnce() {
+  if (__opsLogAttached) return;
+  try {
+    const obs = getClient();               // uses your existing client
+    attachOpsLog(obs, mainWindow);         // starts emitting "obs:opslog:append"
+    __opsLogAttached = true;
+    console.log("[opslog] attached");
+  } catch (e) {
+    console.warn("[opslog] not attached yet:", e?.message);
+  }
+}
+
+//ADD: connect to OBS (if not connected) and then attach logger
+// async function connectAndAttach() {
+//   try {
+//     if (!isConnected()) {
+//       await connectOBS({
+//         url: process.env.OBS_WS_URL || "ws://127.0.0.1:4455",
+//         password: process.env.OBS_WS_PASSWORD || "",
+//       });
+//     }
+//   } catch (e) {
+//     console.warn("[obs] connect failed (will keep app running):", e?.message);
+//     return; // don't crash app if OBS isn't up; you can call again later if you like
+//   }
+//   await attachOpsLogOnce();
+// }
+
+async function createMainWindow() {
   enableConsoleDebug(true);
 
   mainWindow = new BrowserWindow({
@@ -33,8 +74,25 @@ function createMainWindow() {
     },
   });
 
-  // Register IPC BEFORE loading renderer
+// Register IPC BEFORE loading renderer
  cleanupIpc = registerObsIpc(mainWindow);
+ 
+
+//Defer import until after app is ready to avoid early app.getPath() usage
+ const { registerOpsLogIpc } = await import("./ipc/opslog.ipc.js");
+ registerOpsLogIpc();   
+ if (isConnected()) {
+  void attachOpsLogOnce();
+} else {
+  const __attachTimer = setInterval(() => {
+    if (isConnected()) {
+      void attachOpsLogOnce();
+      clearInterval(__attachTimer);
+    }
+  }, 1000); // 1s polling; stops as soon as connected
+}         // exposes 'obs:opslog:snapshot' safely
+
+  // void connectAndAttach();
 
   if (isDev) {
     console.log("🔧 DEV MODE: loading", DEV_SERVER_URL);

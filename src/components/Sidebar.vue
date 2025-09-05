@@ -1,6 +1,6 @@
 <!-- src/components/Sidebar.vue -->
 <template>
-  <aside class="h-screen w-56 bg-[#232436] text-gray-300 flex flex-col justify-between">
+  <aside class="h-screen w-56 bg-slate-800 text-gray-300 flex flex-col justify-between">
     <!-- Top / Logo -->
     <div>
       <div class="text-center text-blue-400 font-bold text-lg py-6">ESPORT AUTOCASTER</div>

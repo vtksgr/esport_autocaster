@@ -89,26 +89,26 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Body -->
-    <div class="p-4">
+    <div class="pt-4 px-2">
       <div v-if="loading" class="text-sm text-gray-300">Loading scenes…</div>
       <div v-else-if="error" class="text-sm text-red-300">{{ error }}</div>
       <div v-else-if="!scenes.length" class="text-sm text-gray-300">No scenes.</div>
 
       <!-- Row layout: plain text chips; only selected has bg -->
-      <ul v-else class="flex flex-wrap gap-x-3 gap-y-2">
+      <ul v-else class="text-sm space-y-1">
         <li v-for="s in scenes" :key="s.sceneName" class="shrink-0">
           <button
             type="button"
             @click="onPick(s.sceneName)"
             :aria-pressed="s.sceneName === selectedScene"
-            class="px-2 w-full py-1 rounded-md text-[11px]
+            class="px-2 w-full py-1 rounded text-[11px] text-left
                    focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400
                    transition-none"
             :class="s.sceneName === selectedScene
               ? 'bg-blue-600 text-white w-full'
               : 'bg-transparent text-slate-100'"
           >
-            <span class="inline-flex items-center gap-1">
+            <span class=" ">
               <span class="truncate max-w-[16ch] sm:max-w-[24ch]">{{ s.sceneName }}</span>
 
             </span>

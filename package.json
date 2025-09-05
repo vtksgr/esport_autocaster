@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -r \"npm:dev:vite\" \"npm:dev:electron\"",
-    "dev:vite": "vite",
+    "dev:vite": "vite --port 5173 --strictPort",
     "dev:electron": "npm --prefix electron run dev",
     "build": "vite build",
     "start": "npm run build && npm --prefix electron run start"

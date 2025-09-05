@@ -106,12 +106,12 @@ watch(() => props.sceneName, (next, prev) => {
 <template>
   <!-- Card becomes a flex column and has a fixed height -->
   <div class="bg-slate-700 w-80 h-96 rounded p-2 border border-slate-600 flex flex-col">
-    <div class="flex items-center justify-between p-2 border-b shrink-0">
+    <div class="flex items-center justify-between p-2 border-b border-slate-600 shrink-0">
       <p class="font-semibold">Sources</p>
     </div>
 
     <!-- Content area: take remaining space and enable vertical scroll -->
-    <div class="p-2 grow overflow-hidden">
+    <div class="pt-4 px-2 grow overflow-hidden">
       <div v-if="loading" class="text-sm text-gray-500">Loading sources…</div>
       <div v-else-if="error" class="text-sm text-red-600">{{ error }}</div>
       <div v-else-if="!props.sceneName" class="text-sm text-gray-500">Select a scene to view sources.</div>
@@ -123,7 +123,7 @@ watch(() => props.sceneName, (next, prev) => {
           <li
             v-for="src in sources"
             :key="src.sourceName"
-            class="flex items-center justify-between text-[11px] px-3 py-2"
+            class="flex items-center justify-between text-[11px] px-3"
           >
             <!-- To make truncate work in flex, give max-w-0 on inner wrapper -->
             <div class="flex-1 min-w-0">
