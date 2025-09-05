@@ -1,3 +1,4 @@
+<!-- C:\comworks\esports-autocaster\src\ui\ObsSourceList.vue -->
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch } from "vue";
 
@@ -90,13 +91,15 @@ onMounted(async () => {
   }
 });
 
-onBeforeUnmount(() => { try { unsub?.(); } catch {} });
+onBeforeUnmount(() => { try { unsub?.(); } catch { } });
 
 watch(() => props.sceneName, (next, prev) => {
-  if (next && next !== prev && connection.value === "connected") {
+  if (next && connection.value === "connected") {
     loadSources(next);
+  } else if (!next) {
+    sources.value = [];
   }
-}, { immediate: false }); // no immediate: wait for connection
+}, { immediate: true });
 </script>
 
 

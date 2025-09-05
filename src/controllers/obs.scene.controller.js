@@ -1,4 +1,4 @@
-// src\obs\obs.scene.controller.js
+//C:\comworks\esports-autocaster\src\controllers\obs.scene.controller.js
 import {ref, watch} from "vue";
 import { ensureVirtualCamActiveOnce } from "./obs.virtualcam.controller.js";
 
@@ -47,7 +47,9 @@ export async function setCollection(name) {
 }
 
 export function attach() {
-  if (!window.api) return () => {};
+  if (!window.api || typeof window.api.onObsState !== "function") {
+    return () => {};
+  }
   const off = window.api.onObsState(async (s) => {
     connection.value = s || "disconnected";
     if (s === "connected") await refreshCollections();

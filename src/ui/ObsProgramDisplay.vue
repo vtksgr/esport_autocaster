@@ -27,15 +27,20 @@ import {
 } from "@/controllers/obs.program.display.controller.js";
 
 const videoEl = ref(null);
+let off;
 
 onMounted(async () => {
   setVideoElement(videoEl.value);
   await bootstrapProgramPreview();
-  // If you want to be extra-safe when Virtual Cam starts later elsewhere,
-  // you could also call attachStream() after your auto-start hook runs.
+  // If virtual cam is started after mount, attach the stream automatically:
+  off = window.api.on("obs:virtualcam:changed", (s) => {
+    if (s?.outputActive) attachStream();
+    else cleanupProgramPreview();
+  });
 });
 
 onUnmounted(() => {
   cleanupProgramPreview();
+  off?.();
 });
 </script>

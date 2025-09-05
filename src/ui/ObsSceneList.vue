@@ -1,6 +1,9 @@
 <!-- C:\comworks\esports-autocaster\src\ui\ObsSceneList.vue -->
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from "vue";
+import { ref, onMounted, onBeforeUnmount, watch } from "vue";
+import { currentCollection } from "../controllers/obs.scene.controller.js";
+
+const emit = defineEmits(["scene:select"]);
 
 const connection     = ref("disconnected");
 const loading        = ref(false);
@@ -9,67 +12,65 @@ const scenes         = ref([]);
 const currentScene   = ref("");
 const selectedScene  = ref("");
 
-const emit = defineEmits(["scene:select"]);
 
 let offState = null;
-let offReady = null;
-let offScenes = null;
+// let offReady = null;
+// let offScenes = null;
 
 function onPick(name) {
   selectedScene.value = name;
   emit("scene:select", name);
 }
+async function loadScenes() {
+  // If no active collection, clear
+  if (!currentCollection.value) {
+    scenes.value = [];
+    currentScene.value = "";
+    selectedScene.value = "";
+    emit("scene:select", "");
+    return;
+  }
+    loading.value = true;
+  error.value = "";
+  try {
+    const data = await window.api.invoke("obs:getScenesAndSourcesForCurrentCollection");
+    // Keep the same shape your template expects: { sceneName }
+    const names = (data?.scenes || []).map(s => ({ sceneName: s.sceneName })).filter(s => !!s.sceneName);
+    scenes.value = names;
 
+    // Maintain a valid selection
+    const hasSelected = names.some(s => s.sceneName === selectedScene.value);
+    if (!hasSelected) {
+      currentScene.value = names[0]?.sceneName || "";
+      selectedScene.value = currentScene.value;
+      emit("scene:select", selectedScene.value || "");
+    }
+  } catch (e) {
+    error.value = e?.message || String(e);
+    scenes.value = [];
+    currentScene.value = "";
+    selectedScene.value = "";
+    emit("scene:select", "");
+  } finally {
+    loading.value = false;
+  }
+}
+
+// Subscribe to connection state if your preload exposes it
 onMounted(async () => {
-  // 1) Subscribe to OBS connection state
   if (window?.api?.onObsState) {
     offState = window.api.onObsState((s) => {
       connection.value = s || "disconnected";
     });
   }
 
-  // 2) Subscribe to readiness: when false, show loading; when true, we’ll get a scene-list event
-  if (window?.api?.onObsReady) {
-    offReady = window.api.onObsReady((isReady) => {
-      if (!isReady) {
-        loading.value = true;
-        error.value = "";
-      }
-      // when it flips to true, a 'obs:scene-list' event will arrive shortly
-    });
-  }
+// Re-fetch scenes whenever the active collection changes (fixes "load once")
+watch(currentCollection, loadScenes, { immediate: true });
 
-  // 3) Subscribe to pushed scene list: update UI here
-  if (window?.api?.onObsSceneList) {
-    offScenes = window.api.onObsSceneList((list) => {
-      try {
-        const onlyNames = (list || []).map(s => ({ sceneName: s.sceneName || s.name || String(s) }));
-        scenes.value = onlyNames;
-        // pick a current
-        currentScene.value = onlyNames?.[0]?.sceneName || currentScene.value || "";
-        if (!selectedScene.value) selectedScene.value = currentScene.value;
-        if (selectedScene.value) emit("scene:select", selectedScene.value);
-        loading.value = false;
-        error.value = "";
-      } catch (e) {
-        error.value = e?.message || String(e);
-        scenes.value = [];
-        loading.value = false;
-      }
-    });
-  }
+onBeforeUnmount(() => {
+  try { offState?.(); } catch {}
+});
 
-  // Seed connection state & kick an initial fetch via IPC if needed:
-  try {
-    const s = await window.api?.invoke?.("obs:getState");
-    connection.value = s || "disconnected";
-    if (connection.value === "connected") {
-      // Ask main for current scenes once (main should waitReady + push scene-list too)
-      try {
-        await window.api.invoke("obs:primeScenes"); // see IPC note below
-      } catch {}
-    }
-  } catch {}
 });
 
 onBeforeUnmount(() => {

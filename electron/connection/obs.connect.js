@@ -112,6 +112,31 @@ export async function connect({ url = "ws://127.0.0.1:4455", password } = {}) {
 
     log(`${COLOR.green}✅ [OBS] connected${COLOR.reset}`, { obsWebSocketVersion, negotiatedRpcVersion });
 
+    // --- Hook readiness + scene list events immediately after connecting ---
+
+obs.on("CurrentSceneCollectionChanging", () => {
+  setReady(false);
+});
+obs.on("SceneListChanged", (payload) => {
+  setReady(true);
+  try {
+    events.emit("scene-list", payload?.scenes || []);
+  } catch {}
+});
+// Prime 'ready' on first connect if possible
+try {
+  const res = await obs.call("GetSceneList");
+  setReady(true);
+  try {
+    events.emit("scene-list", res?.scenes || []);
+  } catch {}
+} catch {
+  // ignore; SceneListChanged will flip ready later
+}
+
+
+
+
     // --- OBS lifecycle events ---
     obs.on("ConnectionClosed", (info) => {
       connected = false;
@@ -160,33 +185,23 @@ export async function disconnect() {
   setState("disconnected");
   log(`${COLOR.cyan}[OBS] disconnected${COLOR.reset}`);
   return { status: "ok" };
-
-  // Enter "not ready" while OBS rebuilds the scene tree
-obs.on("CurrentSceneCollectionChanging", () => {
-  setReady(false);
-});
-// When the scene list changes (new collection loaded), mark ready and push the list
-obs.on("SceneListChanged", (payload) => {
-  setReady(true);
-  try { events.emit("scene-list", payload?.scenes || []); } catch {}
-});
-// Prime readiness on first connect: try to read once; if it works, we’re ready.
-try {
-  const res = await obs.call("GetSceneList");
-  setReady(true);
-  try { events.emit("scene-list", res?.scenes || []); } catch {}
-} catch {
-  // ignore; SceneListChanged will flip ready when OBS finishes loading
-}
 }
 
 // Keep named exports (preferred), but also provide a default bundle if you like importing as an object.
-const api = { 
-  connect, disconnect,
-  getState, isConnected, getClient,
-  onState, onReady, onSceneList,      // NEW exports
-  isReady, waitReady, retry207,       // NEW exports
-  enableConsoleDebug};
+const api = {
+  connect,
+  disconnect,
+  getState,
+  isConnected,
+  getClient,
+  onState,
+  onReady,
+  onSceneList, // NEW exports
+  isReady,
+  waitReady,
+  retry207, // NEW exports
+  enableConsoleDebug,
+};
 export default api;
 
 // Auto-enable debug if env var is set
