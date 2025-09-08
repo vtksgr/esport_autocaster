@@ -3,6 +3,7 @@
   <div class="bg-slate-700 shadow rounded p-2  border border-slate-600">
     <div class="flex items-center justify-between ">
       <button
+        type="button"
         :class="streamButtonClass"
         :disabled="loading"
         @click="toggleStream"

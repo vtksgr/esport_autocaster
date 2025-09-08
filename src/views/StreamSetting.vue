@@ -1,4 +1,11 @@
+<!-- C:\comworks\esports-autocaster\src\views\StreamSetting.vue -->
 <template>
-    <h1>Stream Setting</h1>
+    <ObsRtmpSettings />
+   
 </template>
-<script setup></script>
+
+
+<script setup>
+import ObsRtmpSettings from "@/ui/ObsRtmpSettings.vue";
+
+</script>

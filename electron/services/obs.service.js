@@ -176,6 +176,6 @@ export async function getSourcesForScene(sceneName) {
 export * from "./obs.stream.service.js";
 export * from "./obs.record.service.js";
 export * from "./obs.virtualcam.service.js"; // optional; remove if not needed
+export * from "./obs.rtmps.service.js";      // ✅ NEW
 
-// You can also export shared helpers if you want:
-// export { assertConnected } from "./obs.shared.js";
+

@@ -57,21 +57,23 @@ async function loadScenes() {
 }
 
 // Subscribe to connection state if your preload exposes it
-onMounted(async () => {
+// Subscribe to connection state if your preload exposes it
+onMounted(() => {
   if (window?.api?.onObsState) {
     offState = window.api.onObsState((s) => {
       connection.value = s || "disconnected";
     });
   }
+});
 
 // Re-fetch scenes whenever the active collection changes (fixes "load once")
 watch(currentCollection, loadScenes, { immediate: true });
 
+// Cleanup (only once; remove the other onBeforeUnmount you had)
 onBeforeUnmount(() => {
   try { offState?.(); } catch {}
 });
 
-});
 
 onBeforeUnmount(() => {
   try { offState?.(); } catch {}

@@ -33,6 +33,12 @@ import {
   getSourcesForScene,
 } from "../services/obs.service.js";
 
+import {
+  getStreamServiceSettings,
+  setStreamServiceSettings,
+  validatePlatformAndUrl,
+} from "../services/obs.rtmps.service.js";
+
 /* ---------------------------
    Config helpers (local only)
 ---------------------------- */
@@ -108,6 +114,10 @@ export function registerObsIpc(mainWindow) {
     "obs:startVirtualCam",
     "obs:stopVirtualCam",
     "obs:getVirtualCamStatus",
+
+    "obs:getStreamServiceSettings",
+  "obs:setStreamServiceSettings",
+  "obs:validateRtmpUrl",
   ];
 
   // Hot-reload safety: clear prior handlers
@@ -115,6 +125,7 @@ export function registerObsIpc(mainWindow) {
   //console.log("[IPC] registered channels:", CHANNELS);
 
   /* ---- Connection / state ---- */
+  
 
   ipcMain.handle(
     "obs:connect",
@@ -290,7 +301,27 @@ export function registerObsIpc(mainWindow) {
     "obs:saveConfig",
     withLog("obs:saveConfig", (_e, cfg) => saveConfig(cfg))
   );
-  /* ---- Cleanup ---- */
+
+
+  /* ---- RTMP(S) Settings ---- */
+  ipcMain.handle(
+  "obs:getStreamServiceSettings",
+  withLog("obs:getStreamServiceSettings", () => getStreamServiceSettings())
+);
+
+ipcMain.handle(
+  "obs:validateRtmpUrl",
+  withLog("obs:validateRtmpUrl", (_e, { platform, server }) => {
+    validatePlatformAndUrl(platform, server);
+    return { ok: true };
+  })
+);
+
+ipcMain.handle(
+  "obs:setStreamServiceSettings",
+  withLog("obs:setStreamServiceSettings", (_e, payload) => setStreamServiceSettings(payload))
+);
+
 
   // --- Stop Virtual Cam on app/window shutdown (and support hot-reload) ---
   async function shutdownVirtualCam() {

@@ -13,13 +13,17 @@ let unsub = null;
 let inflight = false;
 
 function subscribeObsState(handler) {
+  // Preferred: our preload exposes .on and returns an unsubscribe function
   if (window?.api && typeof window.api.on === "function") {
-    window.api.on("obs:state", handler);
-    return () => window.api?.off?.("obs:state", handler);
+    // Wrap to match (null, state) signature expected by handler
+    const stop = window.api.on("obs:state", (state) => handler(null, state));
+    return () => { try { stop?.(); } catch {} };
   }
+  // Alternate preload style (receive/removeListener)
   if (window?.api && typeof window.api.receive === "function") {
-    window.api.receive("obs:state", handler);
-    return () => window.api?.removeListener?.("obs:state", handler);
+    const wrapped = (_evt, state) => handler(null, state);
+    window.api.receive("obs:state", wrapped);
+    return () => window.api?.removeListener?.("obs:state", wrapped);
   }
   // Fallback: change-aware 5s polling
   let last = null, t = null;
@@ -36,16 +40,31 @@ function subscribeObsState(handler) {
   return () => clearInterval(t);
 }
 
+
 async function loadSources(name) {
   if (!name || inflight) { if (!name) sources.value = []; return; }
   inflight = true;
   loading.value = true;
   error.value = "";
 
-  async function viaDedicated() {
-    const res = await window.api.invoke("obs:getSourcesForScene", { sceneName: name });
-    return Array.isArray(res?.sources) ? res.sources : [];
-  }
+async function viaDedicated() {
+  const res = await window.api.invoke("obs:getSourcesForScene", { sceneName: name });
+  // Normalize a few possible shapes into [{ sourceName, inputKind? }, ...]
+  const arr =
+    Array.isArray(res?.sources) ? res.sources :
+    Array.isArray(res?.sceneItems) ? res.sceneItems :
+    Array.isArray(res) ? res :
+    [];
+
+  return arr.map((it) => {
+    if (typeof it === "string") return { sourceName: it };
+    return {
+      sourceName: it.sourceName || it.name || it.source || "",
+      inputKind: it.inputKind || it.type || it.kind || undefined,
+    };
+  });
+}
+
   async function viaSnapshot() {
     const res = await window.api.invoke("obs:getScenesAndSourcesForCurrentCollection");
     const match = (res?.scenes || []).find(s => s.sceneName === name);

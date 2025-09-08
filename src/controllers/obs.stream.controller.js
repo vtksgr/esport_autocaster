@@ -13,25 +13,49 @@ function normalizeStreamActive(s) {
   return !!(s.outputActive ?? s.streaming ?? s.active ?? s.isStreaming);
 }
 
-export async function refreshStreamStatus() {
-  try {
-    const s = await window.api.invoke("obs:getStatus");
-    isStreaming.value = normalizeStreamActive(s);
-  } catch {
-    // don't hard-reset to false on transient errors
+// --------------------------------------
+/** One place to call Electron IPC with nice errors */
+async function invokeOrThrow(channel, ...args) {
+  if (!window?.api?.invoke) {
+    const e = new Error("Renderer bridge not ready (window.api.invoke missing).");
+    console.error(e);
+    throw e;
   }
+  try {
+    console.debug("[IPC] call:", channel, args);
+    const res = await window.api.invoke(channel, ...args);
+    console.debug("[IPC] ok:", channel, res);
+    return res;
+  } catch (e) {
+    console.error(`[IPC] ${channel} failed:`, e);
+    throw e;
+  }
+}
+
+
+
+// --------------------------------------
+
+export async function refreshStreamStatus() {
+try {
+    const s = await invokeOrThrow("obs:getStatus");
+     isStreaming.value = normalizeStreamActive(s);
+       } catch (e) {
+    // don't hard-reset to false on transient errors; surface a hint once
+    if (!lastError.value) lastError.value = String(e?.message || e);
+    console.error("Unable to get stream status from OBS.", e);}
 }
 
 /** optimistic + confirm */
 export async function startStream() {
-  try {
-    await window.api.invoke("obs:startStreaming");
+try {
+    await invokeOrThrow("obs:startStreaming");
     // flip UI immediately on success
     isStreaming.value = true;
     lastError.value = "";
 
-    // confirm with a short poll because OBS can lag a tick
-    for (let i = 0; i < 10; i++) {
+    // confirm with a short poll because OBS can lag a tick (give it a bit longer)
+ for (let i = 0; i < 20; i++) {
       await sleep(150);
       await refreshStreamStatus();
       if (isStreaming.value) break;
@@ -48,13 +72,13 @@ export async function startStream() {
 
 /** optimistic + confirm */
 export async function stopStream() {
-  try {
-    await window.api.invoke("obs:stopStreaming");
+try {
+    await invokeOrThrow("obs:stopStreaming");
     // flip UI immediately on success
     isStreaming.value = false;
     lastError.value = "";
 
-    for (let i = 0; i < 10; i++) {
+   for (let i = 0; i < 20; i++) {
       await sleep(150);
       await refreshStreamStatus();
       if (!isStreaming.value) break;
@@ -68,20 +92,20 @@ export async function stopStream() {
 }
 
 /** Single toggle button */
-export async function toggleStream() {
-  if (loading.value) return;
-  loading.value = true;
-  lastError.value = "";
+ export async function toggleStream() {
 
-  const ok = isStreaming.value ? await stopStream() : await startStream();
+console.debug("[UI] toggleStream click; loading=", loading.value, "isStreaming=", isStreaming.value);
+ if (loading.value) return;
+   loading.value = true;
+   lastError.value = "";
+ 
+   const ok = isStreaming.value ? await stopStream() : await startStream();
+ 
 
-  // If a start failed, ensure UI didn’t get stuck
-  if (!ok && !isStreaming.value) {
-    await refreshStreamStatus();
-  }
-  loading.value = false;
-}
-
+// If the action failed, re-sync once more so UI doesn’t get stuck
+if (!ok) await refreshStreamStatus();
+   loading.value = false;
+ }
 export const streamButtonText = computed(() =>
   isStreaming.value ? "配信終了" : "配信開始"
 );
