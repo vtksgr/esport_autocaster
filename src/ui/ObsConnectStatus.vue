@@ -1,5 +1,13 @@
 <template>
   <div class="flex items-center justify-between bg-slate-700 rounded p-2  border border-slate-600 w-48">
+        <span
+      class="w-3.5 h-3.5 rounded-full"
+      :class="{
+        'bg-green-500': state === 'connected',
+        'bg-yellow-400': state === 'unstable',
+        'bg-gray-400': state === 'disconnected'
+      }"
+    />
     <div class="flex flex-col">
       <span class="text-sm font-semibold text-slate-300">OBS接続状況</span>
       <span
@@ -14,14 +22,7 @@
       </span>
     </div>
 
-    <span
-      class="w-3.5 h-3.5 rounded-full"
-      :class="{
-        'bg-green-500': state === 'connected',
-        'bg-yellow-400': state === 'unstable',
-        'bg-gray-400': state === 'disconnected'
-      }"
-    />
+
   </div>
 </template>
 

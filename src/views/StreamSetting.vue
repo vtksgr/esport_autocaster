@@ -1,7 +1,6 @@
 <!-- C:\comworks\esports-autocaster\src\views\StreamSetting.vue -->
 <template>
     <ObsRtmpSettings />
-   
 </template>
 
 
