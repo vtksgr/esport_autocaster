@@ -1,4 +1,7 @@
+<!-- C:\comworks\esports-autocaster\src\views\Overlay.vue -->
 <template>
-    <h1>Overlay</h1>
+    <MediaLibraryView />
 </template>
-<script setup></script>
+<script setup>
+import MediaLibraryView from "@/ui/MediaLibraryPanel.vue";
+</script>

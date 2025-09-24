@@ -1,5 +1,5 @@
 <template>
-  <div class="flex items-center justify-between bg-slate-700 rounded p-2  border border-slate-600 w-48">
+  <div class="flex items-center justify-between bg-slate-800 rounded p-2  border border-slate-600 w-48">
         <span
       class="w-3.5 h-3.5 rounded-full"
       :class="{
@@ -9,8 +9,8 @@
       }"
     />
     <div class="flex flex-col">
-      <span class="text-sm font-semibold text-slate-300">OBS接続状況</span>
-      <span
+      <span class="text-xs font-semibold text-slate-400">OBS接続状況</span>
+      <!-- <span
         class="text-xs mt-0.5"
         :class="{
           'text-green-600': state === 'connected',
@@ -19,7 +19,7 @@
         }"
       >
         {{ label }}
-      </span>
+      </span> -->
     </div>
 
 

@@ -1,6 +1,6 @@
 <!-- esports-autocaster\src\ui\ObsStreamController.vue -->
 <template>
-  <div class="bg-slate-700 shadow rounded p-2  border border-slate-600">
+ 
     <div class="flex items-center justify-between ">
       <button
         type="button"
@@ -9,12 +9,11 @@
         @click="toggleStream"
         :aria-pressed="isStreaming ? 'true' : 'false'"
       >
-        <span v-if="loading" class="text-xs">Please wait…</span>
-        <span v-else>{{ streamButtonText }}</span>
+        <span v-if="loading" class="text-[10px]">Please wait…</span>
+        <span v-else class="text-xs font-semibold">{{ streamButtonText }}</span>
       </button>
-    </div>
 
-    <p v-if="lastError" class="text-xs text-red-600 mt-2">{{ lastError }}</p>
+    <p v-if="lastError" class="text-[10px] text-red-600 mt-2">{{ lastError }}</p>
   </div>
 </template>
 <script setup>

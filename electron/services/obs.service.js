@@ -138,6 +138,82 @@ export async function switchScene(sceneName) {
   assertConnected();
   return getClient().call("SetCurrentProgramScene", { sceneName });
 }
+
+/* -------------------------
+   ADD: Create media inputs
+-------------------------- */
+
+/**
+ * Create an OBS input for a local media file.
+ * kind: "image" | "video" | "audio" (auto-detected if omitted)
+ * loop: loop video/audio (default: true)
+ */
+export async function createMediaInput({
+  sceneName,
+  sourceName,
+  filePath,
+  kind,          // optional
+  loop = true,   // only applies to video/audio
+}) {
+  assertConnected();
+  ensureWired();                 // hook readiness events if not yet wired
+  await waitObsReady();          // respect your readiness window
+
+  if (!sceneName) throw new Error("sceneName is required");
+  if (!sourceName) throw new Error("sourceName is required");
+  if (!filePath) throw new Error("filePath is required");
+
+  // lightweight kind auto-detect if not provided
+  const ext = (filePath.match(/\.[^.\\\/]+$/)?.[0] || "").toLowerCase();
+  const isImage = kind
+    ? kind === "image"
+    : [".png", ".jpg", ".jpeg", ".gif", ".webp"].includes(ext);
+  const isVideo = kind
+    ? kind === "video"
+    : [".mp4", ".mov", ".mkv", ".webm", ".avi"].includes(ext);
+  const isAudio = kind
+    ? kind === "audio"
+    : [".mp3", ".wav", ".aac", ".ogg", ".m4a"].includes(ext);
+
+  const inputKind = isImage ? "image_source" : "ffmpeg_source";
+  const inputSettings = isImage
+    ? { file: filePath }
+    : { local_file: filePath, looping: !!loop };
+
+  const obs = getClient();
+  return callWithRetry(() =>
+    obs.call("CreateInput", {
+      sceneName,
+      inputName: sourceName,
+      inputKind,
+      inputSettings,
+      sceneItemEnabled: true,
+    })
+  );
+}
+
+/** Convenience: add to the current *Program* scene */
+export async function addMediaToCurrentProgramScene({
+  sourceName,
+  filePath,
+  kind,
+  loop = true,
+}) {
+  assertConnected();
+  ensureWired();
+  await waitObsReady();
+
+  const obs = getClient();
+  const { currentProgramSceneName } = await obs.call("GetCurrentProgramScene");
+  if (!currentProgramSceneName) throw new Error("No current program scene.");
+  return createMediaInput({
+    sceneName: currentProgramSceneName,
+    sourceName,
+    filePath,
+    kind,
+    loop,
+  });
+}
 /*--------------------------
    Sources (unchanged)
 -------------------------- */
@@ -151,16 +227,6 @@ export async function getSourcesForScene(sceneName) {
   // OBS v5: GetSceneItemList -> { sceneItems: [{sourceName, ...}] }
   const { sceneItems = [] } = await obs.call("GetSceneItemList", { sceneName });
 
-  // Optionally fetch each input's kind:
-  // NOTE: Commented to avoid extra round trips. Uncomment if you need inputKind.
-  // const withKinds = await Promise.all(sceneItems.map(async (it) => {
-  //   try {
-  //     const { inputKind } = await obs.call("GetInputKind", { inputName: it.sourceName });
-  //     return { sourceName: it.sourceName, inputKind };
-  //   } catch {
-  //     return { sourceName: it.sourceName };
-  //   }
-  // }));
 
   return {
     sceneName,

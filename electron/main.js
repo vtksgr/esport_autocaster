@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {registerObsIpc} from "./ipc/obs.ipc.js";               // your app-level IPC
 import {  getClient, enableConsoleDebug, isConnected, connect as connectOBS, disconnect as disconnectOBS } from "./connection/obs.connect.js";
 import { startVirtualCam, stopVirtualCam } from "./services/obs.virtualcam.service.js";
+import { registerMediaIpc } from "./ipc/media.ipc.js";         // media management IPC
 
 /* ------------------
 OBS Ops Log 
@@ -76,6 +77,7 @@ async function createMainWindow() {
 
 // Register IPC BEFORE loading renderer
  cleanupIpc = registerObsIpc(mainWindow);
+  registerMediaIpc();
  
 
 //Defer import until after app is ready to avoid early app.getPath() usage

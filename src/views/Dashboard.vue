@@ -3,27 +3,27 @@ import { ref } from 'vue';
 
 import ObsConnectStatus from '../ui/ObsConnectStatus.vue';
 import ObsSceneCollection from '../ui/ObsSceneCollection.vue';
-import ObsStreamController from '../ui/ObsStreamController.vue';
-import ObsRecordController from '../ui/ObsRecordController.vue';
+import StreamBtn from '../ui/StreamBtn.vue';
+import RecordBtn from '../ui/RecordBtn.vue';
 import ObsProgramDisplay from '../ui/ObsProgramDisplay.vue';
 import ObsSceneList from '../ui/ObsSceneList.vue';
 import ObsSourceList from '../ui/ObsSourceList.vue';
-import RtmpStatus from '../ui/RtmpStatus.vue';
+
 
 const selectedScene = ref('');
 
 </script>
 
 <template>
-    <div class="flex gap-4 justify-between items-start">
+    <div class="flex bg-slate-700 p-2 rounded gap-3 justify-between items-start border border-slate-600">
         <div>
             <ObsConnectStatus />
         </div>
-        <RtmpStatus />
+        
         <div class="flex gap-4">
             <ObsSceneCollection />
-            <ObsStreamController />
-            <ObsRecordController />
+            <StreamBtn />
+            <RecordBtn />
         </div>
     </div>
     <div class="flex gap-4 mt-4">

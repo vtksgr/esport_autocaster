@@ -1,16 +1,16 @@
 <!-- C:\comworks\esports-autocaster\src\ui\ObsSceneCollection.vue -->
 <template>
-  <div class="bg-slate-700 shadow rounded p-2 space-y-3 border border-slate-600 w-110">
+  
     <div class="flex items-center justify-between">
-      <div>
-        <div class="text-sm font-semibold">シーンコレクション</div>
-        <div class="text-xs text-slate-300">{{ currentCollection || '—' }}</div>
+      <div class="mr-4">
+        <div class="text-xs font-semibold text-slate-400">シーンコレクション:</div>
+        <!-- <div class="text-xs text-slate-300">{{ currentCollection || '—' }}</div> -->
       </div>
 
       <select
         v-model="selected"
         @change="onChange"
-        class="border border-slate-500 rounded px-2 py-1 text-sm bg-slate-600 text-slate-300"
+        class="border border-slate-500 rounded px-2 py-1 text-sm text-slate-400 bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
         :disabled="connection !== 'connected' || loading || !collections.length"
       >
         <option v-for="name in collections" :key="name" :value="name">
@@ -20,7 +20,7 @@
     </div>
 
     <p v-if="lastError" class="text-xs text-red-400">{{ lastError }}</p>
-  </div>
+
 </template>
 
 <script setup>

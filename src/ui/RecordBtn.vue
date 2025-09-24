@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-slate-700 shadow rounded p-2 border border-slate-600">
+  <div class="">
     <button
       :class="recordButtonClass"
       :disabled="loading"
@@ -7,7 +7,7 @@
       :aria-pressed="isRecording ? 'true' : 'false'"
     >
       <span v-if="loading">Please wait…</span>
-      <span v-else>{{ recordButtonText }}</span>
+      <span v-else class="text-xs font-semibold">{{ recordButtonText }}</span>
     </button>
 
     <p v-if="lastError" class="text-xs text-red-600 mt-2">{{ lastError }}</p>

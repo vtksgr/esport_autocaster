@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-slate-700 border border-slate-600 rounded p-3">
+  
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
         <!-- Live status dot -->
@@ -10,17 +10,17 @@
             : 'bg-slate-400 opacity-70'"
           :title="isStreaming ? 'LIVE' : 'Not Live'"
         />
-        <span class="text-slate-200 font-medium">
+        <span class="text-slate-400 text-sm font-medium">
           {{ isStreaming ? 'LIVE' : 'OFFLINE' }}
         </span>
       </div>
 
       <div class="text-right">
-        <div class="text-xs text-slate-400">Platform</div>
-        <div class="text-slate-100 font-semibold">{{ platformLabel }}</div>
+        <div class="text-[10px] text-slate-400">配信サーバー</div>
+        <div class="text-slate-100 text-sm text-slate-300 font-semibold">{{ platformLabel }}</div>
       </div>
     </div>
-  </div>
+
 </template>
 
 <script setup>

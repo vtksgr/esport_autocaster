@@ -87,14 +87,14 @@ onBeforeUnmount(() => {
   <div class="bg-slate-700 w-80 h-96 rounded p-2 border border-slate-600">
     <!-- Header -->
     <div class="flex items-center justify-between p-2 border-b border-slate-600">
-      <p class="font-semibold text-white">Scenes</p>
+      <p class="font-semibold text-slate-300">Scenes</p>
     </div>
 
     <!-- Body -->
     <div class="pt-4 px-2">
-      <div v-if="loading" class="text-sm text-gray-300">Loading scenes…</div>
+      <div v-if="loading" class="text-sm text-gray-400">Loading scenes…</div>
       <div v-else-if="error" class="text-sm text-red-300">{{ error }}</div>
-      <div v-else-if="!scenes.length" class="text-sm text-gray-300">No scenes.</div>
+      <div v-else-if="!scenes.length" class="text-[11px] text-gray-300">No scenes.</div>
 
       <!-- Row layout: plain text chips; only selected has bg -->
       <ul v-else class="text-sm space-y-1">
@@ -103,7 +103,7 @@ onBeforeUnmount(() => {
             type="button"
             @click="onPick(s.sceneName)"
             :aria-pressed="s.sceneName === selectedScene"
-            class="px-2 w-full py-1 rounded text-[11px] text-left
+            class="px-2 w-full py-1 rounded text-[11px] text-left text-slate-400
                    focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400
                    transition-none"
             :class="s.sceneName === selectedScene

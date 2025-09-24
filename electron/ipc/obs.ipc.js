@@ -31,6 +31,7 @@ import {
   stopVirtualCam,
   getVirtualCamStatus,
   getSourcesForScene,
+  createMediaInput
 } from "../services/obs.service.js";
 
 import {

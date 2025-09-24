@@ -112,9 +112,9 @@ export const streamButtonText = computed(() =>
 
 export const streamButtonClass = computed(() =>
   [
-    "px-4 py-2 rounded text-sm font-medium transition",
+    "px-4 py-[4.5px] rounded text-sm font-medium transition border border-slate-500",
     loading.value ? "opacity-70 cursor-not-allowed" : "hover:brightness-110",
-    isStreaming.value ? "bg-green-500 text-white" : "bg-slate-400 text-slate-800",
+    isStreaming.value ? "bg-green-500 text-white" : "bg-slate-800 text-slate-400",
   ].join(" ")
 );
 
