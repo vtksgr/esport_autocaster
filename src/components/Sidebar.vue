@@ -11,7 +11,7 @@
           v-for="item in menuItems"
           :key="item.name"
           :to="item.to"
-          class="flex items-center gap-2 px-3 py-2 rounded transition"
+          class="flex items-center gap-2 px-3 py-2 rounded transition text-gray-400"
           :class="route.name === item.name ? 'bg-[#15161A] text-white' : 'hover:bg-gray-700'"
         >
           <component :is="item.icon" class="w-4 h-4 shrink-0" />

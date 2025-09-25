@@ -1,6 +1,5 @@
 // C:\comworks\esports-autocaster\src\controllers\media.public.controller.js
-// src/controllers/media.public.controller.js
-// IPC wrappers for the Public-folder media library.
+
 
 export async function getPublicDir() {
   return await window.api.invoke("media.public.dir");
@@ -10,14 +9,11 @@ export async function listMediaPublic() {
   return await window.api.invoke("media.public.list");
 }
 
-/**
-* Save an array of File objects to a category.
-* @param {{category: 'overlays'|'video'|'audio'}} opts
-* @param {File[]} files
- */
+export async function listMediaFlat() {
+  return await window.api.invoke("media.public.list");
+}
+
 async function fileToBase64(file) {
-  // Use FileReader -> data:URL and strip the "data:*;base64," prefix
-  // Works reliably for large binary files (images, video, audio)
   return await new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -29,17 +25,10 @@ async function fileToBase64(file) {
     reader.readAsDataURL(file);
   });
 }
-export async function saveFilesToCategory(opts, files) {
+
+export async function saveFilesToMedia(files) {
   const items = [];
-  for (const f of files) {
-    const b64 = await fileToBase64(f);
-    items.push({
-      name: f.name,
-      dataBase64: b64,
-      category: opts.category,
-      // subcategory: opts.subcategory,
-    });
-  }
+  for (const f of files) items.push({ name: f.name, dataBase64: await fileToBase64(f) });
   return await window.api.invoke("media.public.save", items);
 }
 

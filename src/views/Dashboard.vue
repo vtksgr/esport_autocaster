@@ -8,6 +8,7 @@ import RecordBtn from '../ui/RecordBtn.vue';
 import ObsProgramDisplay from '../ui/ObsProgramDisplay.vue';
 import ObsSceneList from '../ui/ObsSceneList.vue';
 import ObsSourceList from '../ui/ObsSourceList.vue';
+import ReloadBtn from '../ui/ReloadBtn.vue';
 
 
 const selectedScene = ref('');
@@ -16,8 +17,9 @@ const selectedScene = ref('');
 
 <template>
     <div class="flex bg-slate-700 p-2 rounded gap-3 justify-between items-start border border-slate-600">
-        <div>
-            <ObsConnectStatus />
+        <div class="flex items-center ">
+            <ObsConnectStatus /> 
+            <ReloadBtn class="ml-2" :title="'Reload App'" :iconSize="15" />
         </div>
         
         <div class="flex gap-4">
