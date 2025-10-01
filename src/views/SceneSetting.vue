@@ -1,4 +1,6 @@
 <template>
-    <h1>Scene Setting </h1>
+  <CreateStreamProfile />
 </template>
-<script setup></script>
+<script setup>
+import CreateStreamProfile from './CreateStreamProfile.vue';
+</script>

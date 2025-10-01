@@ -8,6 +8,7 @@ import {registerObsIpc} from "./ipc/obs.ipc.js";               // your app-level
 import { getClient, enableConsoleDebug, isConnected, connect as connectOBS, disconnect as disconnectOBS } from "./connection/obs.connect.js";
 import { startVirtualCam, stopVirtualCam } from "./services/obs.virtualcam.service.js";
 import { registerMediaIpc } from "./ipc/media.ipc.js";         // media management IPC
+import { registerProfileIpc } from "./ipc/stream.profile.ipc.js";
 
 /* ------------------
 OBS Ops Log 
@@ -67,6 +68,7 @@ async function createMainWindow() {
 // Register IPC BEFORE loading renderer
  cleanupIpc = registerObsIpc(mainWindow);
   registerMediaIpc();
+  registerProfileIpc();
  
 
 //Defer import until after app is ready to avoid early app.getPath() usage
@@ -134,6 +136,7 @@ process.on("uncaughtException", async (err) => {
 });
 
 app.whenReady().then(createMainWindow);
+
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
 });
