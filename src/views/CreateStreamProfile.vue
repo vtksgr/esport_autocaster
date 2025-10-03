@@ -1,51 +1,105 @@
+<script setup>
+import { ref, onMounted } from "vue";
+
+const cards = ref([
+  { key: "SK1", created: false, busy: false },
+  { key: "SK2", created: false, busy: false },
+  { key: "SK3", created: false, busy: false },
+]);
+
+const current = ref({sceneCollection: null, scenes: [],audio: []});
+
+async function refreshExisting() {
+  const res = await window.api.invoke("obs:profile:list");
+  if (!res?.ok) {
+    console.warn("obs:profile:list error:", res?.error);
+    return;
+  }
+  const existing = new Set(res.data || []);
+  cards.value.forEach(c => { c.created = existing.has(c.key); });
+}
+onMounted(refreshExisting);
+
+async function createProfile(key) {
+  const card = cards.value.find(c => c.key === key);
+  if (!card || card.busy) return;
+  card.busy = true;
+
+  const res = await window.api.invoke("obs:profile:create", { profileName: key });
+  card.busy = false;
+
+  if (!res?.ok) {
+    alert(`Create failed: ${res?.error}`);
+    return;
+  }
+  card.created = true;
+}
+
+async function selectProfile(key) {
+  const card = cards.value.find(c => c.key === key);
+  if (!card) return;
+  card.busy = true;
+
+  const res = await window.api.invoke("obs:profile:select", { profileName: key });
+  card.busy = false;
+
+  if (!res?.ok) {
+    alert(`Select failed: ${res?.error}`);
+    return;
+  }
+  current.value = res.data; // { sceneCollection, scenes[], audio[] }
+}
+
+</script>
+
 <template>
-  <div class="space-y-3">
-    <div class="flex items-end gap-2">
-      <div>
-        <label class="text-xs text-slate-400">Window Title</label>
-        <input v-model="windowTitle" class="border rounded px-2 py-1 text-sm bg-slate-900/40 border-slate-600 w-80">
+  <div class="grid grid-cols-4 gap-4">
+    <div v-for="c in cards" :key="c.key" class="rounded-xl bg-slate-800 p-4 text-slate-100">
+      <div class="text-sm opacity-80">{{ c.key }}</div>
+      <div class="mt-3 flex gap-2">
+        <button v-if="!c.created"
+                class="px-3 py-1 rounded bg-indigo-500 disabled:opacity-50"
+                :disabled="c.busy"
+                @click="createProfile(c.key)">
+          {{ c.busy ? '...' : 'Create' }}
+        </button>
+        <button class="px-3 py-1 rounded bg-slate-600 disabled:opacity-50"
+                :disabled="!c.created || c.busy" @click="selectProfile(c.key)">
+          Select
+        </button>
       </div>
-      <div>
-        <label class="text-xs text-slate-400">Camera Name</label>
-        <input v-model="cameraName" class="border rounded px-2 py-1 text-sm bg-slate-900/40 border-slate-600 w-64">
+    </div>
+  </div>
+
+  <!-- Preview/Inspector area -->
+  <div class="mt-6 rounded-xl bg-slate-900 p-4 text-slate-100">
+    <div class="text-sm opacity-80">Scene Collection: {{ current.sceneCollection || '—' }}</div>
+    <div class="grid grid-cols-3 gap-4 mt-4">
+      <div class="rounded bg-slate-800 p-3">
+        <div class="font-semibold mb-2">Scenes</div>
+        <ul class="space-y-1 text-sm">
+          <li v-for="s in current.scenes" :key="s.sceneName">{{ s.sceneName }}</li>
+        </ul>
       </div>
-      <button @click="apply"
-              class="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-sm">
-        Apply SK1
-      </button>
+      <div class="rounded bg-slate-800 p-3">
+        <div class="font-semibold mb-2">Sources (by scene)</div>
+        <div v-for="s in current.scenes" :key="s.sceneName" class="mb-3">
+          <div class="text-xs opacity-70 mb-1">{{ s.sceneName }}</div>
+          <ul class="text-xs ml-2 list-disc">
+            <li v-for="i in s.inputs" :key="i.sceneItemId">{{ i.sourceName }} <span class="opacity-60">({{ i.inputKind || 'input' }})</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="rounded bg-slate-800 p-3">
+        <div class="font-semibold mb-2">Audio Inputs</div>
+        <ul class="space-y-1 text-sm">
+          <li v-for="a in current.audio" :key="a.inputName">{{ a.inputName }} <span class="opacity-60">({{ a.inputKind }})</span></li>
+        </ul>
+      </div>
     </div>
-
-    <div class="flex gap-2">
-      <button @click="setWindow" class="px-2 py-1 rounded bg-slate-700 text-xs">Update Window</button>
-      <button @click="setCamera" class="px-2 py-1 rounded bg-slate-700 text-xs">Update Camera</button>
-    </div>
-
-    <p class="text-xs text-slate-400">
-      Assets auto-load from:
-      <code>src/assets/logo</code>,
-      <code>src/assets/background</code>,
-      <code>src/assets/frame</code>,
-      <code>src/assets/overley</code>.
-    </p>
   </div>
 </template>
 
-<script setup>
-import { ref } from "vue";
-const windowTitle = ref("");  // e.g., "chrome.exe: Battlefield 3"
-const cameraName  = ref("");  // e.g., "Logitech C920"
-
-async function apply() {
-  await window.api.invoke("obs:profile:apply", {
-    name: "SK1",
-    options: { windowTitle: windowTitle.value, cameraName: cameraName.value }
-  });
-}
-
-async function setWindow() {
-  await window.api.invoke("obs:profile:updateWindow", { windowTitle: windowTitle.value });
-}
-async function setCamera() {
-  await window.api.invoke("obs:profile:updateCamera", { cameraName: cameraName.value });
-}
-</script>
+<style scoped>
+/* match your dark UI */
+</style>
