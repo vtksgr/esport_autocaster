@@ -4,14 +4,14 @@ import { app } from "electron";
 import fs from "node:fs/promises";
 import { isConnected, connect as connectOBS, getClient } from "../connection/obs.connect.js";
 
-// -------- Meta / logging --------
-export const PROFILE_SERVICE_VERSION = "profile-service@2025-10-03-04";
+// ===== Meta / logging =====
+export const PROFILE_SERVICE_VERSION = "profile-service@2025-10-03-05";
 console.log("[obs.profile.service] loaded", PROFILE_SERVICE_VERSION);
 
 const asFileUrl = p => pathToFileURL(p).href;
 const RES_W = 1920, RES_H = 1080;
 
-// -------- Assets --------
+// ===== Assets =====
 const ROOT = "C:\\comworks\\esports-autocaster\\src\\assets";
 
 const PROFILE_ASSETS = {
@@ -20,6 +20,7 @@ const PROFILE_ASSETS = {
     inGame:       path.join(ROOT, "frame",      "sk1-ingame.png"),
     break:        path.join(ROOT, "background", "sk1-break.mp4"),
     end:          path.join(ROOT, "frame",      "sk1-end.png"),
+    // You can keep both; normalizer will unify them:
     timerIntro:   path.join(ROOT, "overlay",    "sk1-countDownTimer.html"),
     timerBreak:   path.join(ROOT, "overlay",    "sk1-countDownTimer.html"),
   },
@@ -41,7 +42,7 @@ const PROFILE_ASSETS = {
   }
 };
 
-// -------- OBS kinds --------
+// ===== OBS kinds =====
 const KINDS = {
   MEDIA: "ffmpeg_source",
   BROWSER: "browser_source",
@@ -49,13 +50,13 @@ const KINDS = {
   AUDIO_IN: "wasapi_input_capture",
 };
 
-// -------- Connect --------
+// ===== Connect =====
 async function ensureConnected() {
   if (!isConnected()) await connectOBS();
   return getClient();
 }
 
-// -------- Utilities --------
+// ===== Utilities =====
 const isVideo = p => /\.(mp4|mov|mkv|webm)$/i.test(p || "");
 const isImage = p => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(p || "");
 
@@ -70,9 +71,10 @@ async function step(obs, requestType, args) {
   }
 }
 
-// Accept both new keys and any lingering old ones
+// Prefer a single `timer` asset, fall back to old keys
 function normalizeAssets(Araw = {}) {
-  const timer = Araw.timer ?? Araw.timerIntro ?? Araw.timerBreak; // ONE common timer
+  const timer = Araw.timer ?? Araw.timerIntro ?? Araw.timerBreak;
+  if (!timer) throw new Error("Timer asset not defined (timer | timerIntro | timerBreak)");
   return {
     startingSoon: Araw.startingSoon ?? Araw.introVideo,
     inGame:       Araw.inGame       ?? Araw.frame,
@@ -82,7 +84,7 @@ function normalizeAssets(Araw = {}) {
   };
 }
 
-// ===== Collision-proof input helpers =====
+// ===== Collision-proof input helpers (NO add* functions anywhere) =====
 async function getInput(obs, inputName) {
   const { inputs } = await obs.call("GetInputList");
   return inputs.find(i => i.inputName === inputName) || null;
@@ -92,10 +94,6 @@ async function sceneHasSource(obs, sceneName, inputName) {
   return sceneItems.some(i => i.sourceName === inputName);
 }
 
-/**
- * Ensure an input exists (or create if missing), update its settings,
- * then ensure it is attached to the given scene.
- */
 async function ensureInputInScene(obs, {
   sceneName,
   inputName,
@@ -117,12 +115,11 @@ async function ensureInputInScene(obs, {
       return;
     } catch (e) {
       const msg = e?.message || "";
-      // In case of a race that created the input right before us, fall through to reuse
       if (!/already exists by that input name/i.test(msg)) throw e;
+      // fall through to reuse path if a race occurred
     }
   }
 
-  // Reuse + update settings
   if (inputSettings && Object.keys(inputSettings).length) {
     await obs.call("SetInputSettings", {
       inputName,
@@ -140,7 +137,6 @@ async function ensureInputInScene(obs, {
   }
 }
 
-// typed wrappers
 async function ensureMediaSource(obs, scene, name, filePath, loop = true) {
   await ensureInputInScene(obs, {
     sceneName: scene,
@@ -197,7 +193,7 @@ async function ensureCameraSource(obs, scene, name) {
 }
 
 // ===== Public API =====
-export async function createStreamProfile(name /*, assetsRoot */) {
+export async function createStreamProfile(name) {
   const obs = await ensureConnected();
 
   const A0 = PROFILE_ASSETS[name];
@@ -206,13 +202,12 @@ export async function createStreamProfile(name /*, assetsRoot */) {
   const A = normalizeAssets(A0);
   console.log("[createStreamProfile] Using assets for", name, A);
 
-  // Validate
+  // Validate (single timer)
   await mustExist(A.startingSoon, `${name} startingSoon`);
   await mustExist(A.inGame,       `${name} inGame`);
   await mustExist(A.break,        `${name} break`);
   await mustExist(A.end,          `${name} end`);
-  await mustExist(A.timerIntro,   `${name} timerIntro (HTML)`);
-  await mustExist(A.timerBreak,   `${name} timerBreak (HTML)`);
+  await mustExist(A.timer,        `${name} timer (HTML)`);
 
   // Scene collection
   const { sceneCollections } = await step(obs, "GetSceneCollectionList", {});
@@ -227,11 +222,11 @@ export async function createStreamProfile(name /*, assetsRoot */) {
   for (const s of SCENES) if (!have.has(s)) await step(obs, "CreateScene", { sceneName: s });
   await step(obs, "SetCurrentProgramScene", { sceneName: "1. StartingSoon" });
 
-  // Sources (idempotent, collision-proof)
+  // Sources (idempotent & collision-proof)
   // StartingSoon
   if (isVideo(A.startingSoon)) await ensureMediaSource(obs, "1. StartingSoon", "Intro", A.startingSoon, true);
   else if (isImage(A.startingSoon)) await ensureImageSource(obs, "1. StartingSoon", "Intro", A.startingSoon);
-  await ensureBrowserSource(obs, "1. StartingSoon", "Timer (Intro)", asFileUrl(A.timerIntro), RES_W, RES_H, 30);
+  await ensureBrowserSource(obs, "1. StartingSoon", "IntroTimer", asFileUrl(A.timer), RES_W, RES_H, 30);
 
   // InGame
   await ensureAudioInputDefault(obs, "2. InGame", "Mic/Aux (Default)");
@@ -242,7 +237,7 @@ export async function createStreamProfile(name /*, assetsRoot */) {
   // Break
   if (isVideo(A.break)) await ensureMediaSource(obs, "3. Break", "Break", A.break, true);
   else if (isImage(A.break)) await ensureImageSource(obs, "3. Break", "Break", A.break);
-  await ensureBrowserSource(obs, "3. Break", "Timer (Break)", asFileUrl(A.timerBreak), RES_W, RES_H, 30);
+  await ensureBrowserSource(obs, "3. Break", "BreakTimer", asFileUrl(A.timer), RES_W, RES_H, 30);
 
   // End
   await ensureImageSource(obs, "4. End", "End Image", A.end);
