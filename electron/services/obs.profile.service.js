@@ -1,3 +1,4 @@
+//electron/services/obs.profile.service.js
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { app } from "electron";
@@ -5,7 +6,7 @@ import fs from "node:fs/promises";
 import { isConnected, connect as connectOBS, getClient } from "../connection/obs.connect.js";
 
 // ===== Meta / logging =====
-export const PROFILE_SERVICE_VERSION = "profile-service@2025-10-03-05";
+export const PROFILE_SERVICE_VERSION = "profile-service@2025-10-03-06";
 console.log("[obs.profile.service] loaded", PROFILE_SERVICE_VERSION);
 
 const asFileUrl = p => pathToFileURL(p).href;
@@ -20,7 +21,6 @@ const PROFILE_ASSETS = {
     inGame:       path.join(ROOT, "frame",      "sk1-ingame.png"),
     break:        path.join(ROOT, "background", "sk1-break.mp4"),
     end:          path.join(ROOT, "frame",      "sk1-end.png"),
-    // You can keep both; normalizer will unify them:
     timerIntro:   path.join(ROOT, "overlay",    "sk1-countDownTimer.html"),
     timerBreak:   path.join(ROOT, "overlay",    "sk1-countDownTimer.html"),
   },
@@ -35,7 +35,7 @@ const PROFILE_ASSETS = {
   SK3: {
     startingSoon: path.join(ROOT, "background", "sk3-intro.mp4"),
     inGame:       path.join(ROOT, "frame",      "sk3-inGame.png"),
-    break:        path.join(ROOT, "frame",      "sk3-break.png"),  // PNG
+    break:        path.join(ROOT, "frame",      "sk3-break.png"),
     end:          path.join(ROOT, "frame",      "sk3-end.png"),
     timerIntro:   path.join(ROOT, "overlay",    "sk3-countDownTimer.html"),
     timerBreak:   path.join(ROOT, "overlay",    "sk3-countDownTimer.html"),
@@ -84,7 +84,7 @@ function normalizeAssets(Araw = {}) {
   };
 }
 
-// ===== Collision-proof input helpers (NO add* functions anywhere) =====
+// ===== Collision-proof input helpers =====
 async function getInput(obs, inputName) {
   const { inputs } = await obs.call("GetInputList");
   return inputs.find(i => i.inputName === inputName) || null;
@@ -116,27 +116,20 @@ async function ensureInputInScene(obs, {
     } catch (e) {
       const msg = e?.message || "";
       if (!/already exists by that input name/i.test(msg)) throw e;
-      // fall through to reuse path if a race occurred
+      // race -> reuse path
     }
   }
 
   if (inputSettings && Object.keys(inputSettings).length) {
-    await obs.call("SetInputSettings", {
-      inputName,
-      inputSettings,
-      overlay: true
-    });
+    await obs.call("SetInputSettings", { inputName, inputSettings, overlay: true });
   }
 
   if (!(await sceneHasSource(obs, sceneName, inputName))) {
-    await obs.call("CreateSceneItem", {
-      sceneName,
-      sourceName: inputName,
-      sceneItemEnabled
-    });
+    await obs.call("CreateSceneItem", { sceneName, sourceName: inputName, sceneItemEnabled });
   }
 }
 
+// typed wrappers
 async function ensureMediaSource(obs, scene, name, filePath, loop = true) {
   await ensureInputInScene(obs, {
     sceneName: scene,
@@ -198,31 +191,27 @@ export async function createStreamProfile(name) {
 
   const A0 = PROFILE_ASSETS[name];
   if (!A0) throw new Error(`No absolute asset map defined for profile "${name}"`);
-
   const A = normalizeAssets(A0);
+
   console.log("[createStreamProfile] Using assets for", name, A);
 
-  // Validate (single timer)
   await mustExist(A.startingSoon, `${name} startingSoon`);
   await mustExist(A.inGame,       `${name} inGame`);
   await mustExist(A.break,        `${name} break`);
   await mustExist(A.end,          `${name} end`);
   await mustExist(A.timer,        `${name} timer (HTML)`);
 
-  // Scene collection
   const { sceneCollections } = await step(obs, "GetSceneCollectionList", {});
   const already = sceneCollections.some(sc => sc.sceneCollectionName === name);
   if (!already) await step(obs, "CreateSceneCollection", { sceneCollectionName: name });
   await step(obs, "SetCurrentSceneCollection", { sceneCollectionName: name });
 
-  // Scenes
   const SCENES = ["1. StartingSoon", "2. InGame", "3. Break", "4. End"];
   const { scenes: existing } = await step(obs, "GetSceneList", {});
   const have = new Set(existing.map(s => s.sceneName));
   for (const s of SCENES) if (!have.has(s)) await step(obs, "CreateScene", { sceneName: s });
   await step(obs, "SetCurrentProgramScene", { sceneName: "1. StartingSoon" });
 
-  // Sources (idempotent & collision-proof)
   // StartingSoon
   if (isVideo(A.startingSoon)) await ensureMediaSource(obs, "1. StartingSoon", "Intro", A.startingSoon, true);
   else if (isImage(A.startingSoon)) await ensureImageSource(obs, "1. StartingSoon", "Intro", A.startingSoon);
@@ -276,4 +265,18 @@ export async function selectStreamProfile(name) {
     scenes,
     audio: audioInputs.map(i => ({ inputName: i.inputName, inputKind: i.inputKind })),
   };
+}
+
+// expose for IPC
+export function getAssetsRoot() {
+  const base = app.isPackaged
+    ? path.join(process.resourcesPath, "app.asar.unpacked")
+    : app.getAppPath();
+  return path.join(base, "assets");
+}
+
+export async function listSceneCollections() {
+  const obs = await ensureConnected();
+  const { sceneCollections } = await obs.call("GetSceneCollectionList");
+  return sceneCollections.map(sc => sc.sceneCollectionName);
 }

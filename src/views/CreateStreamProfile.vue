@@ -1,3 +1,4 @@
+<!-- C:\comworks\esports-autocaster\src\views\CreateStreamProfile.vue -->
 <script setup>
 import { ref, onMounted } from "vue";
 
@@ -7,7 +8,7 @@ const cards = ref([
   { key: "SK3", created: false, busy: false },
 ]);
 
-const current = ref({sceneCollection: null, scenes: [],audio: []});
+const current = ref({ sceneCollection: null, scenes: [], audio: [] });
 
 async function refreshExisting() {
   const res = await window.api.invoke("obs:profile:list");
@@ -49,7 +50,6 @@ async function selectProfile(key) {
   }
   current.value = res.data; // { sceneCollection, scenes[], audio[] }
 }
-
 </script>
 
 <template>
@@ -86,14 +86,18 @@ async function selectProfile(key) {
         <div v-for="s in current.scenes" :key="s.sceneName" class="mb-3">
           <div class="text-xs opacity-70 mb-1">{{ s.sceneName }}</div>
           <ul class="text-xs ml-2 list-disc">
-            <li v-for="i in s.inputs" :key="i.sceneItemId">{{ i.sourceName }} <span class="opacity-60">({{ i.inputKind || 'input' }})</span></li>
+            <li v-for="i in s.inputs" :key="i.sceneItemId">
+              {{ i.sourceName }} <span class="opacity-60">({{ i.inputKind || 'input' }})</span>
+            </li>
           </ul>
         </div>
       </div>
       <div class="rounded bg-slate-800 p-3">
         <div class="font-semibold mb-2">Audio Inputs</div>
         <ul class="space-y-1 text-sm">
-          <li v-for="a in current.audio" :key="a.inputName">{{ a.inputName }} <span class="opacity-60">({{ a.inputKind }})</span></li>
+          <li v-for="a in current.audio" :key="a.inputName">
+            {{ a.inputName }} <span class="opacity-60">({{ a.inputKind }})</span>
+          </li>
         </ul>
       </div>
     </div>
