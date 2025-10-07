@@ -34,6 +34,7 @@ async function createProfile(key) {
     return;
   }
   card.created = true;
+  await refreshExisting(); // keeps UI in sync with OBS, even after external changes
 }
 
 async function selectProfile(key) {

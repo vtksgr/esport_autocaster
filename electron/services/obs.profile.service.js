@@ -3,8 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { app } from "electron";
 import fs from "node:fs/promises";
-import { isConnected, connect as connectOBS, getClient } from "../connection/obs.connect.js";
-
+import { isConnected, connect as connectOBS, getClient, waitReady, retry207 } from "../connection/obs.connect.js";
 // ===== Meta / logging =====
 export const PROFILE_SERVICE_VERSION = "profile-service@2025-10-03-06";
 console.log("[obs.profile.service] loaded", PROFILE_SERVICE_VERSION);
@@ -52,8 +51,21 @@ const KINDS = {
 
 // ===== Connect =====
 async function ensureConnected() {
-  if (!isConnected()) await connectOBS();
-  return getClient();
+  if (!isConnected()) {
+    // use your existing connector; keep host/port/password from your current config
+    await connectOBS();              // no changes to your connect logic
+  }
+  const obs = getClient();
+  // if your obs.connect exports a waitReady(), call it here; otherwise poll a simple GetVersion
+  try {
+    // This is a very light probe that also guarantees the socket is ready
+    await obs.call("GetVersion");
+  } catch {
+    // small retry: connect again once if the first probe raced with a reconnect
+    await connectOBS();
+    await obs.call("GetVersion");
+  }
+  return obs;
 }
 
 // ===== Utilities =====
@@ -63,12 +75,29 @@ const isImage = p => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(p || "");
 async function exists(p) { try { await fs.access(p); return true; } catch { return false; } }
 async function mustExist(p, label) { if (!(await exists(p))) throw new Error(`Missing required asset "${label}": ${p}`); }
 
-async function step(obs, requestType, args) {
-  try { return await obs.call(requestType, args); }
-  catch (e) {
-    const msg = e?.message || (typeof e === "string" ? e : JSON.stringify(e));
-    throw new Error(`${requestType} failed: ${msg}`);
+ async function step(obs, requestType, args) {
+   try {
+     return await retry207(() => obs.call(requestType, args));
+   } catch (e) {
+     const msg = e?.message || (typeof e === "string" ? e : JSON.stringify(e));
+     const err = new Error(`${requestType} failed: ${msg}`);
+     if (e && typeof e === "object" && "code" in e) err.code = e.code; // keep the OBS code
+     throw err;
+   }
+ }
+
+ async function waitSceneList(obs, { tries = 40, delay = 120 } = {}) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await obs.call("GetSceneList");
+      if (Array.isArray(res?.scenes)) return res.scenes;
+    } catch (e) {
+      // 207 = "not ready" right after a collection switch; keep polling
+      if (e?.code !== 207) throw e;
+    }
+    await new Promise(r => setTimeout(r, delay));
   }
+  throw new Error("Scene list not ready after switching scene collection.");
 }
 
 // Prefer a single `timer` asset, fall back to old keys
@@ -90,7 +119,7 @@ async function getInput(obs, inputName) {
   return inputs.find(i => i.inputName === inputName) || null;
 }
 async function sceneHasSource(obs, sceneName, inputName) {
-  const { sceneItems } = await obs.call("GetSceneItemList", { sceneName });
+  const { sceneItems } = await step(obs, "GetSceneItemList", { sceneName });
   return sceneItems.some(i => i.sourceName === inputName);
 }
 
@@ -105,13 +134,7 @@ async function ensureInputInScene(obs, {
 
   if (!existing) {
     try {
-      await obs.call("CreateInput", {
-        sceneName,
-        inputName,
-        inputKind,
-        inputSettings,
-        sceneItemEnabled
-      });
+      await step(obs, "CreateInput", { sceneName, inputName, inputKind, inputSettings, sceneItemEnabled });
       return;
     } catch (e) {
       const msg = e?.message || "";
@@ -121,11 +144,11 @@ async function ensureInputInScene(obs, {
   }
 
   if (inputSettings && Object.keys(inputSettings).length) {
-    await obs.call("SetInputSettings", { inputName, inputSettings, overlay: true });
+    await step(obs, "SetInputSettings", { inputName, inputSettings, overlay: true });
   }
 
   if (!(await sceneHasSource(obs, sceneName, inputName))) {
-    await obs.call("CreateSceneItem", { sceneName, sourceName: inputName, sceneItemEnabled });
+    await step(obs, "CreateSceneItem", { sceneName, sourceName: inputName, sceneItemEnabled });
   }
 }
 
@@ -203,11 +226,31 @@ export async function createStreamProfile(name) {
 
   const { sceneCollections } = await step(obs, "GetSceneCollectionList", {});
   const already = sceneCollections.some(sc => sc.sceneCollectionName === name);
-  if (!already) await step(obs, "CreateSceneCollection", { sceneCollectionName: name });
-  await step(obs, "SetCurrentSceneCollection", { sceneCollectionName: name });
+
+  if (!already) {
+   try {
+     await step(obs, "CreateSceneCollection", { sceneCollectionName: name });
+   } catch (err) {
+     const msg = String(err?.message || "");
+     // Older builds or race conditions: treat 601 as "already exists / created"
+     if (err?.code === 601 || /"code":\s*601/.test(msg)) {
+       console.warn("[createStreamProfile] CreateSceneCollection returned 601; continuing.");
+     } else if (/request type not found|unknown request/i.test(msg)) {
+       // Fallback: on some versions, SetCurrentSceneCollection to a new name creates it
+       console.warn("[createStreamProfile] CreateSceneCollection unsupported; using fallback create via SetCurrentSceneCollection.");
+     } else {
+       throw err;
+     }
+   }
+ }
+ await step(obs, "SetCurrentSceneCollection", { sceneCollectionName: name });
+ // IMPORTANT: after switching/creating, ensure scene tree is usable
+ try { await waitReady({ timeout: 8000, step: 120 }); } catch {}
+ await waitSceneList(obs);   // <— probe fallback
 
   const SCENES = ["1. StartingSoon", "2. InGame", "3. Break", "4. End"];
-  const { scenes: existing } = await step(obs, "GetSceneList", {});
+ const { scenes: existing } = await step(obs, "GetSceneList", {});
+
   const have = new Set(existing.map(s => s.sceneName));
   for (const s of SCENES) if (!have.has(s)) await step(obs, "CreateScene", { sceneName: s });
   await step(obs, "SetCurrentProgramScene", { sceneName: "1. StartingSoon" });
@@ -231,6 +274,7 @@ export async function createStreamProfile(name) {
   // End
   await ensureImageSource(obs, "4. End", "End Image", A.end);
 
+  console.log(`[createStreamProfile] Profile "${name}" created/updated successfully.`);
   return { ok: true, name };
 }
 
@@ -256,7 +300,7 @@ export async function selectStreamProfile(name) {
     return na - nb;
   });
 
-  const { inputs } = await obs.call("GetInputList");
+  const { inputs } = await step(obs, "GetInputList", {});
   const audioInputs = inputs.filter(i =>
     String(i.inputKind).includes("wasapi") || String(i.inputKind).includes("audio"));
 
@@ -269,12 +313,11 @@ export async function selectStreamProfile(name) {
 
 // expose for IPC
 export function getAssetsRoot() {
-  const base = app.isPackaged
-    ? path.join(process.resourcesPath, "app.asar.unpacked")
-    : app.getAppPath();
+  const base = app.isPackaged ? path.join(process.resourcesPath, "app.asar.unpacked") : app.getAppPath();
   return path.join(base, "assets");
 }
 
+// --- LIST collections (idempotent display in UI)
 export async function listSceneCollections() {
   const obs = await ensureConnected();
   const { sceneCollections } = await obs.call("GetSceneCollectionList");

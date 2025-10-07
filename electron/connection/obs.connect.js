@@ -152,6 +152,17 @@ try {
       setState("connected");
     });
 
+ // After switching scene collections, OBS has the new scene tree.
+ // Flip ready to true once GetSceneList succeeds (prevents long not-ready windows).
+ obs.on("CurrentSceneCollectionChanged", async () => {
+   try {
+     await obs.call("GetSceneList");
+     setReady(true);
+   } catch {
+     // If it's still warming up, SceneListChanged will flip ready soon after.
+   }
+ });
+
     // Generic client error
     obs.on("error", (e) => {
       console.warn(`${COLOR.yellow}[OBS] Client error${COLOR.reset}:`, e?.message || e);
