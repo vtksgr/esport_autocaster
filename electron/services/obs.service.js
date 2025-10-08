@@ -93,7 +93,12 @@ export async function getScenesAndSourcesForCurrentCollection() {
   const details = [];
   for (const { sceneName } of scenes) {
     const { sceneItems } = await obs.call("GetSceneItemList", { sceneName });
-    details.push({ sceneName, sources: sceneItems.map((i) => i.sourceName) });
+    const sources = sceneItems.map((item) => ({
+      sourceName: item.sourceName,
+      inputKind: item.inputKind ?? null,
+      sceneItemId: item.sceneItemId ?? null,
+    }));
+    details.push({ sceneName, sources });
   }
   return { currentProgramSceneName, scenes: details };
 }
@@ -215,7 +220,7 @@ export async function addMediaToCurrentProgramScene({
   });
 }
 /*--------------------------
-   Sources (unchanged)
+   get Sources 
 -------------------------- */
 
 export async function getSourcesForScene(sceneName) {
@@ -226,12 +231,34 @@ export async function getSourcesForScene(sceneName) {
 
   // OBS v5: GetSceneItemList -> { sceneItems: [{sourceName, ...}] }
   const { sceneItems = [] } = await obs.call("GetSceneItemList", { sceneName });
-
-
   return {
     sceneName,
-    sources: sceneItems.map((it) => ({ sourceName: it.sourceName })),
-    // sources: withKinds,
+       sources: sceneItems.map((it) => ({
+      sourceName: it.sourceName,
+      inputKind: it.inputKind ?? null,
+      sceneItemId: it.sceneItemId ?? null,
+    })),
+  };
+}
+
+export async function getAudioInputs() {
+  assertConnected();
+  const obs = getClient();
+  const { inputs } = await obs.call("GetInputList");
+  const audioInputs = (inputs || []).filter((input) => {
+    const kind = String(input.inputKind || "").toLowerCase();
+    return (
+      kind.includes("audio") ||
+      kind.includes("wasapi") ||
+      kind.includes("pulse") ||
+      kind.includes("coreaudio")
+    );
+  });
+  return {
+    audio: audioInputs.map((input) => ({
+      inputName: input.inputName,
+      inputKind: input.inputKind ?? null,
+    })),
   };
 }
 

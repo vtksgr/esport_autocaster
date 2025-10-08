@@ -31,6 +31,7 @@ import {
   stopVirtualCam,
   getVirtualCamStatus,
   getSourcesForScene,
+  getAudioInputs,
   createMediaInput
 } from "../services/obs.service.js";
 
@@ -101,6 +102,8 @@ export function registerObsIpc(mainWindow) {
     "obs:switch-scene",
 
     "obs:getSourcesForScene",
+    "obs:getAudioInputs",
+    "obs:createMediaInput",
 
     "obs:startStreaming",
     "obs:stopStreaming",
@@ -210,6 +213,11 @@ export function registerObsIpc(mainWindow) {
       return getSourcesForScene(sceneName);
     })
   );
+  ipcMain.handle(
+    "obs:getAudioInputs",
+    withLog("obs:getAudioInputs", () => getAudioInputs())
+  );
+
 
   /* USING OBS VIRTUAL CAM */
   ipcMain.handle(
@@ -323,6 +331,41 @@ ipcMain.handle(
   withLog("obs:setStreamServiceSettings", (_e, payload) => setStreamServiceSettings(payload))
 );
 
+  /* ---- Create Media Input (image, video, audio) ---- */
+ipcMain.handle(
+  "obs:input:create",
+  withLog("obs:input:create", (_e, args = {}) => {
+    // args: { sceneName, inputName, inputKind?, inputSettings?, sceneItemEnabled? }
+    // Your renderer currently sends: { sceneName, inputName, inputKind, inputSettings, sceneItemEnabled }
+    // We map it into createMediaInput’s shape. If inputKind + inputSettings are provided, honor them.
+    const { sceneName, inputName, inputKind, inputSettings } = args;
+
+    if (inputKind && inputSettings) {
+      // Power-user path: call CreateInput directly via createMediaInput with provided kind/settings
+      return createMediaInput({
+        sceneName,
+        sourceName: inputName,
+        filePath: inputSettings?.file, // for images
+        kind: undefined,               // let settings drive it
+        loop: !!inputSettings?.looping
+      });
+    }
+
+    // Simpler path: when you pass filePath + kind (image|video|audio)
+    if (typeof args.filePath === "string") {
+      return createMediaInput({
+        sceneName,
+        sourceName: inputName,
+        filePath: args.filePath,
+        kind: args.kind,
+        loop: args.loop ?? true,
+      });
+    }
+
+    throw new Error("obs:input:create requires either (inputKind+inputSettings) or (filePath+kind).");
+  })
+);
+
 
   // --- Stop Virtual Cam on app/window shutdown (and support hot-reload) ---
   async function shutdownVirtualCam() {
@@ -382,4 +425,5 @@ ipcMain.handle(
     detachShutdownHooks();
     CHANNELS.forEach((ch) => ipcMain.removeHandler(ch));
   };
+  
 }
