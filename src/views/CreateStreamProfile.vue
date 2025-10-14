@@ -1,110 +1,283 @@
 <!-- C:\comworks\esports-autocaster\src\views\CreateStreamProfile.vue -->
-<script setup>
-import { ref, onMounted } from "vue";
-
-const cards = ref([
-  { key: "SK1", created: false, busy: false },
-  { key: "SK2", created: false, busy: false },
-  { key: "SK3", created: false, busy: false },
-]);
-
-const current = ref({ sceneCollection: null, scenes: [], audio: [] });
-
-async function refreshExisting() {
-  const res = await window.api.invoke("obs:profile:list");
-  if (!res?.ok) {
-    console.warn("obs:profile:list error:", res?.error);
-    return;
-  }
-  const existing = new Set(res.data || []);
-  cards.value.forEach(c => { c.created = existing.has(c.key); });
-}
-onMounted(refreshExisting);
-
-async function createProfile(key) {
-  const card = cards.value.find(c => c.key === key);
-  if (!card || card.busy) return;
-  card.busy = true;
-
-  const res = await window.api.invoke("obs:profile:create", { profileName: key });
-  card.busy = false;
-
-  if (!res?.ok) {
-    alert(`Create failed: ${res?.error}`);
-    return;
-  }
-  card.created = true;
-  await refreshExisting(); // keeps UI in sync with OBS, even after external changes
-}
-
-async function selectProfile(key) {
-  const card = cards.value.find(c => c.key === key);
-  if (!card) return;
-  card.busy = true;
-
-  const res = await window.api.invoke("obs:profile:select", { profileName: key });
-  card.busy = false;
-
-  if (!res?.ok) {
-    alert(`Select failed: ${res?.error}`);
-    return;
-  }
-  current.value = res.data; // { sceneCollection, scenes[], audio[] }
-}
-</script>
-
 <template>
-  <div class="grid grid-cols-4 gap-4">
-    <div v-for="c in cards" :key="c.key" class="rounded-xl bg-slate-800 p-4 text-slate-100">
-      <div class="text-sm opacity-80">{{ c.key }}</div>
-      <div class="mt-3 flex gap-2">
-        <button v-if="!c.created"
-                class="px-3 py-1 rounded bg-indigo-500 disabled:opacity-50"
-                :disabled="c.busy"
-                @click="createProfile(c.key)">
-          {{ c.busy ? '...' : 'Create' }}
+  <div class="flex gap-6 items-start justify-start">
+    <!-- Cards -->
+    <div
+      v-for="card in cards"
+      :key="card.name"
+      class="w-[220px] h-[128px] rounded p-3 flex flex-col justify-between transition border"
+      :class="[ card.active ? 'border-green-500' : 'border-white/10', 'bg-[#2b3441]']"
+    >
+      <div>
+        <div class="flex justify-between items-center">
+          <span class="text-sm text-white/90 font-semibold tracking-wide">{{ card.name }}</span>
+          <span
+            class="text-[10px] px-1.5 py-0.5 rounded"
+            :class="card.active ? 'bg-green-600/30 text-green-300' : (card.exists ? 'bg-white/10 text-white/70' : 'bg-yellow-500/20 text-yellow-200')"
+          >
+            {{ card.active ? 'Active' : (card.exists ? 'Exists' : 'Not Created') }}
+          </span>
+        </div>
+        <div class="h-px bg-white/15 my-2"></div>
+      </div>
+
+      <div class="flex gap-2">
+        <!-- Create -->
+        <button
+          class="flex-1 text-sm font-medium rounded py-1.5 transition"
+          :class="[
+            card.exists || busy
+              ? 'bg-white/10 text-white/40 cursor-not-allowed'
+              : 'bg-white/20 hover:bg-white/30 text-white/90',
+          ]"
+          :disabled="card.exists || busy"
+          @click="onCreateClick(card)"
+        >
+          create
         </button>
-        <button class="px-3 py-1 rounded bg-slate-600 disabled:opacity-50"
-                :disabled="!c.created || c.busy" @click="selectProfile(c.key)">
-          Select
+
+        <!-- Select -->
+        <button
+          class="flex-1 text-sm font-medium rounded py-1.5 transition"
+          :class="[
+            (!card.exists || card.active || busy)
+              ? 'bg-white/10 text-white/40 cursor-not-allowed'
+              : 'bg-white/20 hover:bg-white/30 text-white/90',
+          ]"
+          :disabled="!card.exists || card.active || busy"
+          @click="onSelectClick(card)"
+        >
+          select
         </button>
       </div>
     </div>
+
+    <!-- Add-new empty card (optional visual only) -->
+    <div
+      class="w-[220px] h-[128px] bg-[#2b3441] rounded border border-white/10 flex items-center justify-center hover:bg-white/5 cursor-default transition"
+      title="Add new profile (coming soon)"
+    >
+      <span class="text-2xl text-white/70">+</span>
+    </div>
   </div>
 
-  <!-- Preview/Inspector area -->
-  <div class="mt-6 rounded-xl bg-slate-900 p-4 text-slate-100">
-    <div class="text-sm opacity-80">Scene Collection: {{ current.sceneCollection || '—' }}</div>
-    <div class="grid grid-cols-3 gap-4 mt-4">
-      <div class="rounded bg-slate-800 p-3">
-        <div class="font-semibold mb-2">Scenes</div>
-        <ul class="space-y-1 text-sm">
-          <li v-for="s in current.scenes" :key="s.sceneName">{{ s.sceneName }}</li>
-        </ul>
+  <!-- Prompt Modal -->
+  <div
+    v-if="modal.open"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+    @keydown.esc="closeModal"
+  >
+    <div class="w-full max-w-md rounded-2xl bg-[#222a35] border border-white/10 p-5 shadow-xl">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-white/90 font-semibold">
+          {{ modal.title }}
+        </h3>
+        <button class="text-white/50 hover:text-white/80" @click="closeModal">✕</button>
       </div>
-      <div class="rounded bg-slate-800 p-3">
-        <div class="font-semibold mb-2">Sources (by scene)</div>
-        <div v-for="s in current.scenes" :key="s.sceneName" class="mb-3">
-          <div class="text-xs opacity-70 mb-1">{{ s.sceneName }}</div>
-          <ul class="text-xs ml-2 list-disc">
-            <li v-for="i in s.inputs" :key="i.sceneItemId">
-              {{ i.sourceName }} <span class="opacity-60">({{ i.inputKind || 'input' }})</span>
-            </li>
-          </ul>
-        </div>
-      </div>
-      <div class="rounded bg-slate-800 p-3">
-        <div class="font-semibold mb-2">Audio Inputs</div>
-        <ul class="space-y-1 text-sm">
-          <li v-for="a in current.audio" :key="a.inputName">
-            {{ a.inputName }} <span class="opacity-60">({{ a.inputKind }})</span>
-          </li>
-        </ul>
+      <p class="text-white/80 text-sm leading-relaxed mb-5">
+        {{ modal.message }}
+      </p>
+
+      <div class="flex justify-end gap-2">
+        <button
+          v-if="modal.showCancel"
+          class="px-3 py-1.5 text-sm rounded bg-white/10 hover:bg-white/15 text-white/80"
+          @click="closeModal"
+        >
+          Cancel
+        </button>
+        <button
+          v-if="modal.showConfirm"
+          class="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
+          :disabled="busy"
+          @click="onConfirm"
+        >
+          Confirm
+        </button>
       </div>
     </div>
   </div>
 </template>
 
-<style scoped>
-/* match your dark UI */
-</style>
+<script setup>
+import { ref, onMounted } from "vue";
+import {
+  listProfiles,
+  createProfile as createProfileApi,
+  selectProfile as selectProfileApi,
+  getCurrentSelection,
+  ensureDefaults,
+  getObsStatus, // added in controller in our previous patch
+} from "@/controllers/obs.profile.controller.js";
+
+/* ---------------------------- State & utilities --------------------------- */
+const busy = ref(false);
+const cards = ref([
+  { name: "SK1", exists: false, active: false },
+  { name: "SK2", exists: false, active: false },
+  { name: "SK3", exists: false, active: false },
+]);
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const norm = (s) => String(s ?? "").trim().toLowerCase();
+
+const lastExisting = ref(new Set());
+
+/* ------------------------------- Modal state ------------------------------ */
+const modal = ref({
+  open: false,
+  type: "",            // 'create-exists' | 'create-confirm' | 'select-confirm'
+  name: "",
+  title: "",
+  message: "",
+  showConfirm: false,
+  showCancel: true,
+  payload: null,       // optional payload
+});
+
+function openModal(opts) {
+  modal.value = { open: true, showCancel: true, showConfirm: false, type: "", name: "", title: "", message: "", payload: null, ...opts };
+}
+function closeModal() {
+  modal.value.open = false;
+  modal.value.type = "";
+  modal.value.name = "";
+  modal.value.payload = null;
+}
+
+/* ------------------------------- Refresh UI ------------------------------ */
+async function refreshState() {
+  try {
+    busy.value = true;
+    const [{ connected }, existingRaw, current] = await Promise.all([
+      getObsStatus().catch(() => ({ connected: false })),
+      listProfiles().catch(() => []),
+      getCurrentSelection().catch(() => ({})),
+    ]);
+
+    const currentName = current?.sceneCollection ?? "";
+    const existing =
+      connected && Array.isArray(existingRaw) && existingRaw.length
+        ? new Set(existingRaw.map(norm))
+        : lastExisting.value; // keep prior truth if OBS blips
+
+    if (currentName) existing.add(norm(currentName)); // current always exists
+
+    lastExisting.value = new Set(existing);
+
+    cards.value.forEach((c) => {
+      c.exists = existing.has(norm(c.name));
+      c.active = norm(c.name) === norm(currentName);
+    });
+  } catch (err) {
+    console.error("[StreamProfileGrid] refresh error:", err);
+    // preserve last known existence/active on error
+    const current = await getCurrentSelection().catch(() => ({}));
+    const currentName = current?.sceneCollection ?? "";
+    cards.value.forEach((c) => {
+      c.exists = lastExisting.value.has(norm(c.name)) || norm(c.name) === norm(currentName);
+      c.active = norm(c.name) === norm(currentName);
+    });
+  } finally {
+    busy.value = false;
+  }
+}
+
+/* ------------------------------- Button flows ---------------------------- */
+// CLICK: CREATE (per-card)
+function onCreateClick(card) {
+  if (busy.value) return;
+
+  if (card.exists) {
+    // case: already exists -> info prompt with only Cancel
+    openModal({
+      type: "create-exists",
+      name: card.name,
+      title: "Scene collection already exists",
+      message: `“${card.name}” is already created in OBS.`,
+      showConfirm: false,
+      showCancel: true,
+    });
+    return;
+  }
+
+  // case: does not exist -> confirm to create
+  openModal({
+    type: "create-confirm",
+    name: card.name,
+    title: "Create scene collection?",
+    message: `Do you want to create the scene collection “${card.name}”?`,
+    showConfirm: true,
+    showCancel: true,
+  });
+}
+
+// CONFIRM handler for modal
+async function onConfirm() {
+  const m = modal.value;
+  if (!m.open) return;
+
+  switch (m.type) {
+    case "create-confirm":
+      await handleConfirmCreate(m.name);
+      break;
+    case "select-confirm":
+      await handleConfirmSelect(m.name);
+      break;
+    default:
+      break;
+  }
+}
+
+// Actual creation
+async function handleConfirmCreate(name) {
+  busy.value = true;
+  try {
+    await createProfileApi(name); // backend is idempotent
+    // optimistic local flip
+    cards.value.forEach((c) => { if (c.name === name) { c.exists = true; c.active = true; } });
+
+    try { await ensureDefaults(name); } catch (e) {
+      console.warn("[ensure-defaults] non-fatal:", e?.message || e);
+    }
+    await sleep(200);
+  } catch (e) {
+    console.error("[Create] error:", e);
+  } finally {
+    closeModal();
+    await refreshState(); // always re-evaluate exists/active
+  }
+}
+
+// CLICK: SELECT (per-card)
+function onSelectClick(card) {
+  if (busy.value || !card.exists || card.active) return;
+
+  openModal({
+    type: "select-confirm",
+    name: card.name,
+    title: "Switch active scene collection?",
+    message: `Set “${card.name}” as the current scene collection in OBS?`,
+    showConfirm: true,
+    showCancel: true,
+  });
+}
+
+// Actual selection
+async function handleConfirmSelect(name) {
+  busy.value = true;
+  try {
+    await selectProfileApi(name);
+    // optimistic local flip
+    cards.value.forEach((c) => (c.active = c.name === name));
+    await sleep(150);
+  } catch (e) {
+    console.error("[Select] error:", e);
+  } finally {
+    closeModal();
+    await refreshState();
+  }
+}
+
+onMounted(refreshState);
+</script>

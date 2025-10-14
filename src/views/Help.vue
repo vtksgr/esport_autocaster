@@ -1,4 +1,8 @@
+<!-- StreamProfileGrid.vue -->
 <template>
-    <h1>Help</h1>
+  <h1>Help</h1>
 </template>
-<script setup></script>
+
+<script setup>
+// UI only — logic will be added later
+</script>

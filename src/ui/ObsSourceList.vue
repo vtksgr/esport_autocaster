@@ -61,6 +61,7 @@ async function viaDedicated() {
     return {
       sourceName: it.sourceName || it.name || it.source || "",
       inputKind: it.inputKind || it.type || it.kind || undefined,
+      sceneItemId: it.sceneItemId ?? it.id ?? undefined,
     };
   });
 }
@@ -68,7 +69,13 @@ async function viaDedicated() {
   async function viaSnapshot() {
     const res = await window.api.invoke("obs:getScenesAndSourcesForCurrentCollection");
     const match = (res?.scenes || []).find(s => s.sceneName === name);
-    return match ? (match.sources || []).map(sn => ({ sourceName: sn })) : [];
+        return match
+      ? (match.sources || []).map((sn) => ({
+          sourceName: typeof sn === "string" ? sn : sn?.sourceName || "",
+          inputKind: typeof sn === "object" && sn !== null ? sn.inputKind ?? undefined : undefined,
+          sceneItemId: typeof sn === "object" && sn !== null ? sn.sceneItemId ?? undefined : undefined,
+        }))
+      : [];
   }
 
   try {
