@@ -1,4 +1,10 @@
 // src/controllers/obs.profile.controller.js
+
+const normName = (n) => {
+  const s = String(n ?? "").trim();
+  if (!s) throw new Error("Profile name is required.");
+  return s;
+};
 export async function listProfiles() {
   const res = await window.api.invoke("obs:profile:list");
   if (!res?.ok) throw new Error("obs:profile:list failed");
@@ -6,28 +12,29 @@ export async function listProfiles() {
 }
 
 export async function createProfile(name) {
-  const res = await window.api.invoke("obs:profile:create", { name });
-  if (!res?.ok) {
-    // allow UI to continue if backend already handled existence
-    throw new Error(res?.error || "obs:profile:create failed");
-  }
+  const safe = normName(name); // ← guard
+  const res = await window.api.invoke("obs:profile:create", { name: safe });
+  if (!res?.ok) throw new Error(res?.error || "obs:profile:create failed");
   return res.data; // { created: true|false }
 }
 
 
 export async function selectProfile(name) {
-  const res = await window.api.invoke("obs:profile:select", { name });
+  const safe = normName(name); // ← guard
+  const res = await window.api.invoke("obs:profile:select", { name: safe });
   if (!res?.ok) throw new Error("obs:profile:select failed");
 }
 
 export async function getProfileState(name) {
-  const res = await window.api.invoke("obs:profile:state", { name });
+  const safe = normName(name); // ← optional but safe
+  const res = await window.api.invoke("obs:profile:state", { name: safe });
   if (!res?.ok) throw new Error("obs:profile:state failed");
   return res.data;
 }
 
 export async function ensureDefaults(name) {
-  const res = await window.api.invoke("obs:profile:ensure-defaults", { name });
+  const safe = normName(name); // ← guard
+  const res = await window.api.invoke("obs:profile:ensure-defaults", { name: safe });
   if (!res?.ok) throw new Error("obs:profile:ensure-defaults failed");
   return res.data;
 }

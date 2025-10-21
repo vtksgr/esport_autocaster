@@ -22,12 +22,14 @@ export function registerProfileIpc() {
 });
 
 
-  ipcMain.handle("obs:profile:create", async (_e, { name }) => {
+ipcMain.handle("obs:profile:create", async (_e, { name }) => {
+  const safe = String(name ?? "").trim();
+  if (!safe) return { ok: false, error: "Invalid profile name" };
+
   try {
-    await createStreamProfile(name);
+    await createStreamProfile(safe);
     return { ok: true, data: { created: true } };
   } catch (err) {
-    // If the profile already exists (race / 601), treat as success
     if (err && (err.code === 601 || String(err.message || "").toLowerCase().includes("exists"))) {
       return { ok: true, data: { created: false, reason: "already-exists" } };
     }
@@ -35,29 +37,37 @@ export function registerProfileIpc() {
   }
 });
 
-  ipcMain.handle("obs:profile:select", async (_e, { name }) => {
-    await selectProfile(name);
-    return { ok: true };
-  });
+ipcMain.handle("obs:profile:select", async (_e, { name }) => {
+  const safe = String(name ?? "").trim();
+  if (!safe) return { ok: false, error: "Invalid profile name" };
 
-  ipcMain.handle("obs:profile:state", async (_e, { name }) => {
-    const state = await getProfileState(name);
-    return { ok: true, data: state };
-  });
+  await selectProfile(safe);
+  return { ok: true };
+});
+
+ipcMain.handle("obs:profile:state", async (_e, { name }) => {
+  const safe = String(name ?? "").trim();
+  if (!safe) return { ok: false, error: "Invalid profile name" };
+
+  const state = await getProfileState(safe);
+  return { ok: true, data: state };
+});
 
 
-  // Safer: swallow benign 601 so renderer can still refresh
-  ipcMain.handle("obs:profile:ensure-defaults", async (_e, { name }) => {
-    try {
-      const result = await ensureDefaultScenesAndSources(name);
-      return { ok: true, data: result };
-    } catch (err) {
-      if (err?.code === 601) {
-        return { ok: true, data: null, warn: String(err?.message || err) };
-      }
-      return { ok: false, error: String(err?.message || err) };
+ipcMain.handle("obs:profile:ensure-defaults", async (_e, { name }) => {
+  const safe = String(name ?? "").trim();
+  if (!safe) return { ok: false, error: "Invalid profile name" };
+
+  try {
+    const result = await ensureDefaultScenesAndSources(safe);
+    return { ok: true, data: result };
+  } catch (err) {
+    if (err?.code === 601) {
+      return { ok: true, data: null, warn: String(err?.message || err) };
     }
-  });
+    return { ok: false, error: String(err?.message || err) };
+  }
+});
 
   // -------------------------------------------------------
   // NEW: read-only current selection (no switching in OBS)

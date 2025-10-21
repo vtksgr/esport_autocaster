@@ -13,11 +13,43 @@ const ROOT = "C:\\comworks\\esports-autocaster\\src\\assets";
 
 /** Canonical default scenes and source plan (plain JS). */
 const DEFAULT_SCENES = ["StartingSoon", "InGame", "Break", "End"];
+const REVERSED_DEFAULTS = [...DEFAULT_SCENES].reverse();
+
+// ---------- helpers ----------
+function sortByDefaultOrder(sceneNames) {
+  const rank = new Map(DEFAULT_SCENES.map((n, i) => [n.toLowerCase(), i]));
+  return [...sceneNames].sort((a, b) => {
+    const ra = rank.has(a.toLowerCase()) ? rank.get(a.toLowerCase()) : 999;
+    const rb = rank.has(b.toLowerCase()) ? rank.get(b.toLowerCase()) : 999;
+    if (ra !== rb) return ra - rb;
+    return a.localeCompare(b);
+  });
+}
+
+async function removeDefaultSceneIfPresent(obs) {
+  const { scenes, currentProgramSceneName } = await obs.call("GetSceneList");
+  const def = scenes.find(s => s.sceneName.trim().toLowerCase() === "scene");
+  if (!def) return;
+
+  if (currentProgramSceneName?.trim().toLowerCase() === "scene") {
+    const target = DEFAULT_SCENES.find(n => scenes.some(s => s.sceneName === n)) || scenes[0]?.sceneName;
+    if (target) {
+      await obs.call("SetCurrentProgramScene", { sceneName: target });
+    }
+  }
+
+  try {
+    await obs.call("RemoveScene", { sceneName: def.sceneName });
+  } catch (e) {
+    if (e?.code !== 601) throw e;
+  }
+}
 
 /** Per-profile absolute assets (tweak here only). */
 const PROFILE_ASSETS = {
   SK1: {
     startingSoon: {
+      // (Your current file map – keeping as-is)
       image: path.join(ROOT, "frame", "sk1-ingame.png"),
       mediaLoop: path.join(ROOT, "background", "sk1-intro.mp4"),
       timerHtml: path.join(ROOT, "overlay", "sk1-countDownTimer.html"),
@@ -31,16 +63,14 @@ const PROFILE_ASSETS = {
   },
   SK2: {
     startingSoon: {
-      image: path.join(ROOT, "frame", "sk1-ingame.png"),
-      mediaLoop: path.join(ROOT, "background", "sk1-intro.mp4"),
-      timerHtml: path.join(ROOT, "overlay", "sk1-countDownTimer.html"),
+      image: path.join(ROOT, "frame", "sk2-intro.png"),
     },
-    inGame: { overlayImage: path.join(ROOT, "frame", "sk1-ingame.png") },
+    inGame: { overlayImage: path.join(ROOT, "frame", "sk2-ingame.png") },
     break: {
-      mediaLoop: path.join(ROOT, "background", "sk1-break.mp4"),
-      timerHtml: path.join(ROOT, "overlay", "sk1-countDownTimer.html"),
+      image: path.join(ROOT, "frame", "sk2-break.png"),
+      timerHtml: path.join(ROOT, "overlay", "sk2-countDownTimer.html"),
     },
-    end: { endImage: path.join(ROOT, "frame", "sk1-end.png") },
+    end: { endImage: path.join(ROOT, "frame", "sk2-end.png") },
   },
   SK3: {
     startingSoon: {
@@ -80,6 +110,73 @@ async function sceneExists(obs, sceneName) {
 }
 
 /** GLOBAL input utilities (single definitions) */
+async function getInputByName(obs, inputName) {
+  const { inputs } = await obs.call("GetInputList");
+  const target = String(inputName ?? "").trim().toLowerCase();
+  return inputs.find(i => i.inputName.trim().toLowerCase() === target) || null;
+}
+
+async function removeInputIfExists(obs, inputName) {
+  const hit = await getInputByName(obs, inputName);
+  if (!hit) return false;
+  try {
+    await obs.call("RemoveInput", { inputName: hit.inputName });
+    return true;
+  } catch (e) {
+    if (e?.code !== 601) throw e;
+    return false;
+  }
+}
+
+/**
+ * FIX: Upsert an input:
+ * - creates if missing
+ * - if exists and kind matches, updates settings (overlay=true)
+ * - if exists and kind differs, removes + recreates
+ * Always ensures it is attached to the target scene.
+ */
+async function upsertInput(obs, sceneName, inputName, inputKind, settings) {
+  const existing = await getInputByName(obs, inputName);
+
+  if (!existing) {
+    const { sceneItemId } = await obs.call("CreateInput", {
+      sceneName,
+      inputName,
+      inputKind,
+      inputSettings: settings || {},
+      sceneItemEnabled: true,
+    });
+    return sceneItemId;
+  }
+
+  // Ensure attached
+  await attachExistingInputToScene(obs, sceneName, inputName);
+
+  // Update settings if same kind
+  const sameKind =
+    existing.unversionedInputKind === inputKind ||
+    existing.inputKind === inputKind;
+  if (sameKind) {
+    await obs.call("SetInputSettings", {
+      inputName,
+      inputSettings: settings || {},
+      overlay: true,
+    });
+    return null;
+  }
+
+  // Replace if kind differs
+  await obs.call("RemoveInput", { inputName });
+  const { sceneItemId } = await obs.call("CreateInput", {
+    sceneName,
+    inputName,
+    inputKind,
+    inputSettings: settings || {},
+    sceneItemEnabled: true,
+  });
+  return sceneItemId;
+}
+
 async function inputExistsGlobal(obs, inputName) {
   const { inputs } = await obs.call("GetInputList");
   return inputs.some((i) => i.inputName.trim().toLowerCase() === inputName.trim().toLowerCase());
@@ -97,16 +194,11 @@ async function renameInputIfExists(obs, oldName, newName) {
 
 /** Scene creation that tolerates name collisions with existing inputs */
 async function createSceneIfMissing(obs, sceneName) {
-  // Already exists as scene?
   if (await sceneExists(obs, sceneName)) return;
 
-  // If a source globally uses this sceneName, rename it before creating the scene
-  // (scene + source share the same global name namespace in OBS)
   if (await inputExistsGlobal(obs, sceneName)) {
-    // try one deterministic rename
     const renamed = await renameInputIfExists(obs, sceneName, `${sceneName} (Source)`);
     if (!renamed) {
-      // As a belt-and-suspenders, attempt a numbered suffix once
       await renameInputIfExists(obs, sceneName, `${sceneName} (Source 1)`);
     }
   }
@@ -114,15 +206,11 @@ async function createSceneIfMissing(obs, sceneName) {
   try {
     await obs.call("CreateScene", { sceneName });
   } catch (err) {
-    // 601 can be a race or a stale conflict. Re-check and return if created meanwhile.
     if (err?.code === 601) {
       if (await sceneExists(obs, sceneName)) return;
-      // If still failing, last attempt: make sure no source still claims the name
-      // (another thread might have recreated it)
       if (await inputExistsGlobal(obs, sceneName)) {
         await renameInputIfExists(obs, sceneName, `${sceneName} (Source)`);
       }
-      // Re-check once more
       if (await sceneExists(obs, sceneName)) return;
     }
     throw err;
@@ -148,8 +236,8 @@ async function attachExistingInputToScene(obs, sceneName, inputName) {
 }
 
 /**
- * Create an input if missing globally; if it exists globally, just attach it
- * to the target scene. Truly idempotent for OBS v5 naming semantics.
+ * Original helper (kept in case other code uses it).
+ * Creates if missing; otherwise just attaches to the scene.
  */
 async function createInputIfMissing(obs, sceneName, inputName, inputKind, settings) {
   if (!(await inputExistsGlobal(obs, inputName))) {
@@ -163,7 +251,7 @@ async function createInputIfMissing(obs, sceneName, inputName, inputKind, settin
       });
       return sceneItemId;
     } catch (err) {
-      if (err?.code !== 601) throw err; // not a benign conflict
+      if (err?.code !== 601) throw err;
     }
   }
   return await attachExistingInputToScene(obs, sceneName, inputName);
@@ -181,52 +269,89 @@ async function listInputs(obs) {
 export async function listProfiles() {
   const obs = await ensureConnected();
   const { sceneCollections } = await obs.call("GetSceneCollectionList");
-  return sceneCollections.map((s) => s.sceneCollectionName);
+
+  const names = (Array.isArray(sceneCollections) ? sceneCollections : [])
+    .map((s) => {
+      if (typeof s === "string") return s;
+      if (s && typeof s === "object" && "sceneCollectionName" in s) return s.sceneCollectionName;
+      return String(s ?? "");
+    })
+    .map((n) => String(n ?? "").trim())
+    .filter(Boolean);
+
+  return names;
 }
 
 export async function createStreamProfile(name) {
-  const obs = await ensureConnected();
-  const { sceneCollections } = await obs.call("GetSceneCollectionList");
-  const exists = sceneCollections.some((s) => s.sceneCollectionName.trim().toLowerCase() === name.trim().toLowerCase());
+  const safe = String(name ?? "").trim();
+  if (!safe) throw new Error("Invalid profile name");
 
+  const obs = await ensureConnected();
+
+  // create / switch to collection
+  const { sceneCollections } = await obs.call("GetSceneCollectionList");
+  const exists = (sceneCollections || []).some(
+    (s) => String(s.sceneCollectionName ?? "").trim().toLowerCase() === safe.toLowerCase()
+  );
   if (!exists) {
     try {
-      await obs.call("CreateSceneCollection", { sceneCollectionName: name });
+      await obs.call("CreateSceneCollection", { sceneCollectionName: safe });
     } catch (err) {
-      // Treat benign races as "already exists"
       if (!(err?.code === 601 || String(err?.message || "").toLowerCase().includes("exists"))) {
         throw err;
       }
     }
   }
 
-  await obs.call("SetCurrentSceneCollection", { sceneCollectionName: name });
+  await obs.call("SetCurrentSceneCollection", { sceneCollectionName: safe });
 
-  // Ensure the 4 default scenes exist (idempotent)
-  for (const scn of DEFAULT_SCENES) {
+  // Remove OBS’s default “Scene” BEFORE we create anything else
+  await removeDefaultSceneIfPresent(obs);
+
+  // Create in reverse to land in desired UI order (you already had this)
+  for (const scn of REVERSED_DEFAULTS) {
     await createSceneIfMissing(obs, scn);
   }
+
+  try { await obs.call("SetCurrentProgramScene", { sceneName: "StartingSoon" }); } catch {}
+
+  // Belt-and-suspenders
+  await removeDefaultSceneIfPresent(obs);
+
+  try {
+    const { scenes } = await obs.call("GetSceneList");
+    console.log("[order check]", scenes.map(s => s.sceneName));
+  } catch {}
 }
 
 export async function selectProfile(name) {
+  const safe = String(name ?? "").trim();
+  if (!safe) throw new Error("Invalid profile name");
+
   const obs = await ensureConnected();
-  await obs.call("SetCurrentSceneCollection", { sceneCollectionName: name });
+  await obs.call("SetCurrentSceneCollection", { sceneCollectionName: safe });
+
+  await removeDefaultSceneIfPresent(obs);
+  try { await obs.call("SetCurrentProgramScene", { sceneName: "StartingSoon" }); } catch {}
 }
 
 export async function getProfileState(name) {
-  const obs = await ensureConnected();
+  const safe = String(name ?? "").trim();
+  if (!safe) throw new Error("Invalid profile name");
 
-  // Switch to requested profile first so we query its state
-  await obs.call("SetCurrentSceneCollection", { sceneCollectionName: name });
+  const obs = await ensureConnected();
+  await obs.call("SetCurrentSceneCollection", { sceneCollectionName: safe });
 
   const { currentSceneCollectionName } = await obs.call("GetSceneCollectionList");
   const { scenes, currentProgramSceneName } = await obs.call("GetSceneList");
 
+  const orderedSceneNames = sortByDefaultOrder(scenes.map(s => s.sceneName));
+
   const sceneStates = [];
-  for (const s of scenes) {
-    const { sceneItems } = await obs.call("GetSceneItemList", { sceneName: s.sceneName });
+  for (const sceneName of orderedSceneNames) {
+    const { sceneItems } = await obs.call("GetSceneItemList", { sceneName });
     sceneStates.push({
-      sceneName: s.sceneName,
+      sceneName,
       sources: sceneItems.map((it) => ({
         sourceName: it.sourceName,
         sceneItemId: it.sceneItemId,
@@ -259,12 +384,21 @@ export async function getProfileState(name) {
 /**
  * Ensure default scenes + default static sources are present for a profile.
  * User-configurable sources (Mic/Webcam/Window) are created empty.
+ *
+ * FIX: switched to upsertInput so SK2 updates its own file paths instead of
+ * inheriting SK1’s old settings when inputs already exist.
  */
 export async function ensureDefaultScenesAndSources(profileName) {
-  const obs = await ensureConnected();
-  await obs.call("SetCurrentSceneCollection", { sceneCollectionName: profileName });
+  const safe = String(profileName ?? "").trim();
+  if (!safe) throw new Error("Invalid profile name");
 
-  // Ensure scenes
+  const obs = await ensureConnected();
+  await obs.call("SetCurrentSceneCollection", { sceneCollectionName: safe });
+
+  // Remove the default "Scene" if OBS created it
+  await removeDefaultSceneIfPresent(obs);
+
+  // Create missing scenes ONCE in canonical order (remove duplicate loop)
   for (const scn of DEFAULT_SCENES) {
     await createSceneIfMissing(obs, scn);
   }
@@ -274,7 +408,7 @@ export async function ensureDefaultScenesAndSources(profileName) {
     return await getProfileState(profileName);
   }
 
-  // Validate files that must exist
+  // Validate files that must exist (only those specified)
   if (assets.startingSoon?.image)
     await fileMustExist(assets.startingSoon.image, `${profileName} StartingSoon image`);
   if (assets.startingSoon?.mediaLoop)
@@ -296,48 +430,90 @@ export async function ensureDefaultScenesAndSources(profileName) {
     await fileMustExist(assets.end.endImage, `${profileName} End image`);
 
   // --- StartingSoon ---
-  await createInputIfMissing(obs, "StartingSoon", "LogoImage", "image_source", {
-    file: assets.startingSoon?.image || "",
+// --- StartingSoon ---
+if (assets.startingSoon?.image) {
+  await upsertInput(obs, "StartingSoon", "LogoImage", "image_source", {
+    file: assets.startingSoon.image,
   });
-  await createInputIfMissing(obs, "StartingSoon", "IntroVideoLoop", "ffmpeg_source", {
-    local_file: assets.startingSoon?.mediaLoop || "",
+} else {
+  await removeInputIfExists(obs, "LogoImage");
+}
+
+if (assets.startingSoon?.mediaLoop) {
+  await upsertInput(obs, "StartingSoon", "IntroVideoLoop", "ffmpeg_source", {
+    local_file: assets.startingSoon.mediaLoop,
     looping: true,
   });
-  await createInputIfMissing(obs, "StartingSoon", "CountdownTimer", "browser_source", {
-    url: assets.startingSoon?.timerHtml ? asFileUrl(assets.startingSoon.timerHtml) : "",
+} else {
+  // prevent bleed if SK2 has no intro video
+  await removeInputIfExists(obs, "IntroVideoLoop");
+}
+
+if (assets.startingSoon?.timerHtml) {
+  await upsertInput(obs, "StartingSoon", "CountdownTimer", "browser_source", {
+    url: asFileUrl(assets.startingSoon.timerHtml),
     width: 1920,
     height: 1080,
   });
+} else {
+  // prevent bleed if SK2 has no timer
+  await removeInputIfExists(obs, "CountdownTimer");
+}
+
 
   // --- InGame ---
-  await createInputIfMissing(obs, "InGame", "OverlayImage", "image_source", {
-    file: assets.inGame?.overlayImage || "",
+if (assets.inGame?.overlayImage) {
+  await upsertInput(obs, "InGame", "OverlayImage", "image_source", {
+    file: assets.inGame.overlayImage,
   });
-  await createInputIfMissing(obs, "InGame", "Webcam", "dshow_input", {});
-  await createInputIfMissing(obs, "InGame", "Mic", "wasapi_input_capture", {});
-  await createInputIfMissing(obs, "InGame", "WindowCapture", "window_capture", {});
+} else {
+  await removeInputIfExists(obs, "OverlayImage");
+}
+// keep user-configurable devices present
+await upsertInput(obs, "InGame", "Webcam", "dshow_input", {});
+await upsertInput(obs, "InGame", "Mic", "wasapi_input_capture", {});
+await upsertInput(obs, "InGame", "WindowCapture", "window_capture", {});
 
-  // --- Break ---
-  if (assets.break?.mediaLoop) {
-    await createInputIfMissing(obs, "Break", "BreakVideoLoop", "ffmpeg_source", {
-      local_file: assets.break.mediaLoop,
-      looping: true,
-    });
-  } else if (assets.break?.image) {
-    await createInputIfMissing(obs, "Break", "BreakImage", "image_source", {
-      file: assets.break.image,
-    });
-  }
-  await createInputIfMissing(obs, "Break", "BreakTimer", "browser_source", {
-    url: assets.break?.timerHtml ? asFileUrl(assets.break.timerHtml) : "",
+
+
+// --- Break ---
+if (assets.break?.mediaLoop) {
+  await removeInputIfExists(obs, "BreakImage");
+  await upsertInput(obs, "Break", "BreakVideoLoop", "ffmpeg_source", {
+    local_file: assets.break.mediaLoop,
+    looping: true,
+  });
+} else if (assets.break?.image) {
+  await removeInputIfExists(obs, "BreakVideoLoop");
+  await upsertInput(obs, "Break", "BreakImage", "image_source", {
+    file: assets.break.image,
+  });
+} else {
+  // neither provided → clean both to avoid bleed
+  await removeInputIfExists(obs, "BreakVideoLoop");
+  await removeInputIfExists(obs, "BreakImage");
+}
+
+if (assets.break?.timerHtml) {
+  await upsertInput(obs, "Break", "BreakTimer", "browser_source", {
+    url: asFileUrl(assets.break.timerHtml),
     width: 1920,
     height: 1080,
   });
+} else {
+  await removeInputIfExists(obs, "BreakTimer");
+}
 
-  // --- End ---
-  await createInputIfMissing(obs, "End", "EndImage", "image_source", {
-    file: assets.end?.endImage || "",
+
+
+// --- End ---
+if (assets.end?.endImage) {
+  await upsertInput(obs, "End", "EndImage", "image_source", {
+    file: assets.end.endImage,
   });
+} else {
+  await removeInputIfExists(obs, "EndImage");
+}
 
   return await getProfileState(profileName);
 }

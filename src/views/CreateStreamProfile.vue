@@ -15,7 +15,7 @@
             class="text-[10px] px-1.5 py-0.5 rounded"
             :class="card.active ? 'bg-green-600/30 text-green-300' : (card.exists ? 'bg-white/10 text-white/70' : 'bg-yellow-500/20 text-yellow-200')"
           >
-            {{ card.active ? 'Active' : (card.exists ? 'Exists' : 'Not Created') }}
+            {{ card.active ? 'Active' : (card.exists ? 'Available' : 'Not Created') }}
           </span>
         </div>
         <div class="h-px bg-white/15 my-2"></div>
@@ -119,7 +119,14 @@ const cards = ref([
 ]);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const norm = (s) => String(s ?? "").trim().toLowerCase();
+// const norm = (s) => String(s ?? "").trim().toLowerCase();
+// Canonicalize names: trim, lower, NFKC normalize, strip zero-width chars
+const canon = (s) =>
+  String(s ?? "")
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "") // zero-width space/ZWJ/ZWNJ/BOM
+    .trim()
+    .toLowerCase();
 
 const lastExisting = ref(new Set());
 
@@ -149,39 +156,57 @@ function closeModal() {
 async function refreshState() {
   try {
     busy.value = true;
+
     const [{ connected }, existingRaw, current] = await Promise.all([
       getObsStatus().catch(() => ({ connected: false })),
       listProfiles().catch(() => []),
       getCurrentSelection().catch(() => ({})),
     ]);
 
-    const currentName = current?.sceneCollection ?? "";
-    const existing =
-      connected && Array.isArray(existingRaw) && existingRaw.length
-        ? new Set(existingRaw.map(norm))
-        : lastExisting.value; // keep prior truth if OBS blips
+    const currentName = canon(current?.sceneCollection ?? "");
 
-    if (currentName) existing.add(norm(currentName)); // current always exists
+    // Normalize (trim/lower) every name coming from OBS
+  const normalizedList = Array.isArray(existingRaw)
+  ? existingRaw.map((n) => canon(n)).filter(Boolean)
+      : [];
 
-    lastExisting.value = new Set(existing);
+    // If we actually received a non-empty list, use it; otherwise keep last good one.
+    let existing = normalizedList.length > 0
+      ? new Set(normalizedList)
+      : lastExisting.value;
 
+    // Always consider the current scene collection as existing (OBS guarantees it exists)
+    if (currentName) existing = new Set([...existing, currentName]);
+
+    // Update cache only when we truly have something (avoid replacing with empty)
+    if (normalizedList.length > 0 || currentName) {
+      lastExisting.value = new Set(existing);
+    }
+
+    // Apply to cards
     cards.value.forEach((c) => {
-      c.exists = existing.has(norm(c.name));
-      c.active = norm(c.name) === norm(currentName);
+      const nm = canon(c.name);
+      c.exists = existing.has(nm);
+      c.active = nm === currentName;
     });
   } catch (err) {
     console.error("[StreamProfileGrid] refresh error:", err);
-    // preserve last known existence/active on error
+    // Fallback: keep last good knowledge and at least mark current as existing
     const current = await getCurrentSelection().catch(() => ({}));
-    const currentName = current?.sceneCollection ?? "";
+    const currentName = canon(current?.sceneCollection ?? "");
+    const existing = new Set(lastExisting.value);
+    if (currentName) existing.add(currentName);
+
     cards.value.forEach((c) => {
-      c.exists = lastExisting.value.has(norm(c.name)) || norm(c.name) === norm(currentName);
-      c.active = norm(c.name) === norm(currentName);
+      const nm = canon(c.name);
+      c.exists = existing.has(nm);
+      c.active = nm === currentName;
     });
   } finally {
     busy.value = false;
   }
 }
+
 
 /* ------------------------------- Button flows ---------------------------- */
 // CLICK: CREATE (per-card)
@@ -247,6 +272,11 @@ async function handleConfirmCreate(name) {
     closeModal();
     await refreshState(); // always re-evaluate exists/active
   }
+  if (!name || !String(name).trim()) {
+  console.warn("[UI] Empty profile name passed to confirm handler");
+  closeModal();
+  return;
+}
 }
 
 // CLICK: SELECT (per-card)
