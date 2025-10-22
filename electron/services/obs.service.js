@@ -6,11 +6,11 @@ import { assertConnected, sleep } from "./obs.shared.js";
 /* -------------------------
    NEW: readiness + helpers
 -------------------------- */
-let obsReady = false;        // true when scene tree is stable
+let obsReady = false; // true when scene tree is stable
 let wiringDone = false;
 
 const READY_TIMEOUT = 7000;
-const RETRY_DELAY   = 140;
+const RETRY_DELAY = 140;
 
 function wireObsLifecycleOnce() {
   if (wiringDone) return;
@@ -19,10 +19,14 @@ function wireObsLifecycleOnce() {
   obsReady = false;
 
   // Enter "not ready" window while OBS rebuilds after collection switch
-  obs.on("CurrentSceneCollectionChanging", () => { obsReady = false; });
+  obs.on("CurrentSceneCollectionChanging", () => {
+    obsReady = false;
+  });
 
   // After collection switched, SceneListChanged will arrive when scenes are rebuilt
-  obs.on("SceneListChanged", () => { obsReady = true; });
+  obs.on("SceneListChanged", () => {
+    obsReady = true;
+  });
 
   // On initial connect you might not get SceneListChanged automatically,
   // so try to prime readiness by asking once (ignore 207).
@@ -55,7 +59,11 @@ async function callWithRetry(fn, tries = 4, delay = RETRY_DELAY) {
     } catch (e) {
       // If this is the 207 window, wait and try again
       const msg = e?.message || "";
-      if (msg.includes("not ready") || msg.includes("OBS is not ready") || e?.code === 207) {
+      if (
+        msg.includes("not ready") ||
+        msg.includes("OBS is not ready") ||
+        e?.code === 207
+      ) {
         lastErr = e;
         await sleep(delay);
         continue;
@@ -64,6 +72,28 @@ async function callWithRetry(fn, tries = 4, delay = RETRY_DELAY) {
     }
   }
   throw lastErr;
+}
+// OBS WebSocket can rate-limit bursts of requests, so keep concurrent calls modest.
+const OBS_SCENE_ITEM_LIST_CONCURRENCY = 4;
+
+async function mapWithConcurrency(items, limit, mapper) {
+  if (!items.length) return [];
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (true) {
+        const currentIndex = nextIndex++;
+        if (currentIndex >= items.length) break;
+        results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+      }
+    }
+  );
+
+  await Promise.all(workers);
+  return results;
 }
 /* -------------------------
    Ensure lifecycle wiring
@@ -79,7 +109,9 @@ function ensureWired() {
 export async function getSceneCollections() {
   assertConnected();
   const obs = getClient();
-  const { sceneCollections, currentSceneCollectionName } = await obs.call("GetSceneCollectionList");
+  const { sceneCollections, currentSceneCollectionName } = await obs.call(
+    "GetSceneCollectionList"
+  );
   const names = (sceneCollections || []).map((s) =>
     typeof s === "string" ? s : s?.sceneCollectionName ?? s?.name ?? String(s)
   );
@@ -90,24 +122,33 @@ export async function getScenesAndSourcesForCurrentCollection() {
   assertConnected();
   const obs = getClient();
   const { scenes, currentProgramSceneName } = await obs.call("GetSceneList");
-  const details = [];
-  for (const { sceneName } of scenes) {
-    const { sceneItems } = await obs.call("GetSceneItemList", { sceneName });
+  const sceneItemsResults = await mapWithConcurrency(
+    scenes,
+    OBS_SCENE_ITEM_LIST_CONCURRENCY,
+    ({ sceneName }) => obs.call("GetSceneItemList", { sceneName })
+  );
+  const details = sceneItemsResults.map(({ sceneItems }, index) => {
+    const sceneName = scenes[index].sceneName;
     const sources = sceneItems.map((item) => ({
       sourceName: item.sourceName,
       inputKind: item.inputKind ?? null,
       sceneItemId: item.sceneItemId ?? null,
     }));
-    details.push({ sceneName, sources });
-  }
+    return { sceneName, sources };
+  });
   return { currentProgramSceneName, scenes: details };
 }
 
-export async function getScenesAndSourcesForCollection(sceneCollectionName, { peek = true, pauseMs = 250 } = {}) {
+export async function getScenesAndSourcesForCollection(
+  sceneCollectionName,
+  { peek = true, pauseMs = 250 } = {}
+) {
   assertConnected();
   if (!sceneCollectionName) throw new Error("sceneCollectionName is required");
   const obs = getClient();
-  const { currentSceneCollectionName } = await obs.call("GetSceneCollectionList");
+  const { currentSceneCollectionName } = await obs.call(
+    "GetSceneCollectionList"
+  );
   const needSwitch = currentSceneCollectionName !== sceneCollectionName;
 
   try {
@@ -116,22 +157,36 @@ export async function getScenesAndSourcesForCollection(sceneCollectionName, { pe
       await sleep(pauseMs);
     }
     const { scenes, currentProgramSceneName } = await obs.call("GetSceneList");
-    const details = [];
-    for (const { sceneName } of scenes) {
-      const { sceneItems } = await obs.call("GetSceneItemList", { sceneName });
-      details.push({ sceneName, sources: sceneItems.map((i) => i.sourceName) });
-    }
-    return { sceneCollectionName, currentProgramSceneName, scenes: details, switched: needSwitch && !peek, peeked: needSwitch && peek };
+    const sceneItemsResults = await mapWithConcurrency(
+      scenes,
+      OBS_SCENE_ITEM_LIST_CONCURRENCY,
+      ({ sceneName }) => obs.call("GetSceneItemList", { sceneName })
+    );
+    const details = sceneItemsResults.map(({ sceneItems }, index) => ({
+      sceneName: scenes[index].sceneName,
+      sources: sceneItems.map((i) => i.sourceName),
+    }));
+    return {
+      sceneCollectionName,
+      currentProgramSceneName,
+      scenes: details,
+      switched: needSwitch && !peek,
+      peeked: needSwitch && peek,
+    };
   } finally {
     if (peek && needSwitch && currentSceneCollectionName) {
-      await obs.call("SetCurrentSceneCollection", { sceneCollectionName: currentSceneCollectionName });
+      await obs.call("SetCurrentSceneCollection", {
+        sceneCollectionName: currentSceneCollectionName,
+      });
     }
   }
 }
 
 export async function setSceneCollection(name) {
   assertConnected();
-  return getClient().call("SetCurrentSceneCollection", { sceneCollectionName: name });
+  return getClient().call("SetCurrentSceneCollection", {
+    sceneCollectionName: name,
+  });
 }
 
 export async function getScenes() {
@@ -157,12 +212,12 @@ export async function createMediaInput({
   sceneName,
   sourceName,
   filePath,
-  kind,          // optional
-  loop = true,   // only applies to video/audio
+  kind, // optional
+  loop = true, // only applies to video/audio
 }) {
   assertConnected();
-  ensureWired();                 // hook readiness events if not yet wired
-  await waitObsReady();          // respect your readiness window
+  ensureWired(); // hook readiness events if not yet wired
+  await waitObsReady(); // respect your readiness window
 
   if (!sceneName) throw new Error("sceneName is required");
   if (!sourceName) throw new Error("sourceName is required");
@@ -233,7 +288,7 @@ export async function getSourcesForScene(sceneName) {
   const { sceneItems = [] } = await obs.call("GetSceneItemList", { sceneName });
   return {
     sceneName,
-       sources: sceneItems.map((it) => ({
+    sources: sceneItems.map((it) => ({
       sourceName: it.sourceName,
       inputKind: it.inputKind ?? null,
       sceneItemId: it.sceneItemId ?? null,
@@ -269,6 +324,4 @@ export async function getAudioInputs() {
 export * from "./obs.stream.service.js";
 export * from "./obs.record.service.js";
 export * from "./obs.virtualcam.service.js"; // optional; remove if not needed
-export * from "./obs.rtmps.service.js";      // ✅ NEW
-
-
+export * from "./obs.rtmps.service.js"; // ✅ NEW

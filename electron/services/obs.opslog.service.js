@@ -9,6 +9,9 @@ import path from "node:path";
 const MAX_BUFFER = 2000;
 const buffer = [];
 
+// Track active event handlers per OBS client so we can cleanly detach them.
+const handlerRegistry = new WeakMap();
+
 // Optional: persist to file (rotates per day)
 // Lazily compute the log dir so we don’t touch app.getPath() before app is ready.
 function getLogDir() {
@@ -37,7 +40,6 @@ function persist(line) {
   }
 }
 
-
 function nowISO() {
   return new Date().toISOString();
 }
@@ -61,74 +63,210 @@ export function getOpsLogSnapshot() {
  * Call this once after the socket connects (and again after reconnects).
  */
 export function attachOpsLog(obs, mainWindow) {
-  // Clear nothing on attach; we want continuity across reconnects.
+  if (!obs) return;
 
-  const on = (event, handler) => obs.on(event, (payload) => {
-    try { handler(payload); } catch {}
-  });
+  // Remove any previous handlers for this OBS client before attaching new ones.
+  detachOpsLog(obs);
+
+  const handlers = [];
+  handlerRegistry.set(obs, handlers);
+  const on = (event, handler) => {
+    const listener = (payload) => {
+      try {
+        handler(payload);
+      } catch {}
+    };
+    handlers.push({ event, listener });
+    obs.on(event, listener);
+  };
 
   // --- Stream / Record / VirtualCam
   on("StreamStateChanged", ({ outputActive, outputState }) =>
-    pushAndPersist({ t: nowISO(), type: "stream", msg: outputActive ? "Stream started" : "Stream stopped", data: { outputState } }, mainWindow)
+    pushAndPersist(
+      {
+        t: nowISO(),
+        type: "stream",
+        msg: outputActive ? "Stream started" : "Stream stopped",
+        data: { outputState },
+      },
+      mainWindow
+    )
   );
 
   on("RecordStateChanged", ({ outputActive, outputState }) =>
-    pushAndPersist({ t: nowISO(), type: "record", msg: outputActive ? "Recording started" : "Recording stopped", data: { outputState } }, mainWindow)
+    pushAndPersist(
+      {
+        t: nowISO(),
+        type: "record",
+        msg: outputActive ? "Recording started" : "Recording stopped",
+        data: { outputState },
+      },
+      mainWindow
+    )
   );
 
   on("VirtualcamStateChanged", ({ outputActive }) =>
-    pushAndPersist({ t: nowISO(), type: "virtualcam", msg: outputActive ? "Virtual Camera started" : "Virtual Camera stopped" }, mainWindow)
+    pushAndPersist(
+      {
+        t: nowISO(),
+        type: "virtualcam",
+        msg: outputActive ? "Virtual Camera started" : "Virtual Camera stopped",
+      },
+      mainWindow
+    )
   );
 
   // --- Scene switching / collections
   on("CurrentProgramSceneChanged", ({ sceneName }) =>
-    pushAndPersist({ t: nowISO(), type: "scene", msg: `Switched Program scene → ${sceneName}`, data: { sceneName } }, mainWindow)
+    pushAndPersist(
+      {
+        t: nowISO(),
+        type: "scene",
+        msg: `Switched Program scene → ${sceneName}`,
+        data: { sceneName },
+      },
+      mainWindow
+    )
   );
 
   on("CurrentPreviewSceneChanged", ({ sceneName }) =>
-    pushAndPersist({ t: nowISO(), type: "scene", msg: `Switched Preview scene → ${sceneName}`, data: { sceneName } }, mainWindow)
+    pushAndPersist(
+      {
+        t: nowISO(),
+        type: "scene",
+        msg: `Switched Preview scene → ${sceneName}`,
+        data: { sceneName },
+      },
+      mainWindow
+    )
   );
 
   on("SceneCreated", ({ sceneName }) =>
-    pushAndPersist({ t: nowISO(), type: "scene", msg: `Scene created: ${sceneName}` }, mainWindow)
+    pushAndPersist(
+      { t: nowISO(), type: "scene", msg: `Scene created: ${sceneName}` },
+      mainWindow
+    )
   );
 
   on("SceneRemoved", ({ sceneName }) =>
-    pushAndPersist({ t: nowISO(), type: "scene", msg: `Scene removed: ${sceneName}` }, mainWindow)
+    pushAndPersist(
+      { t: nowISO(), type: "scene", msg: `Scene removed: ${sceneName}` },
+      mainWindow
+    )
   );
 
   on("CurrentSceneCollectionChanged", ({ sceneCollectionName }) =>
-    pushAndPersist({ t: nowISO(), type: "collection", msg: `Scene Collection changed → ${sceneCollectionName}` }, mainWindow)
+    pushAndPersist(
+      {
+        t: nowISO(),
+        type: "collection",
+        msg: `Scene Collection changed → ${sceneCollectionName}`,
+      },
+      mainWindow
+    )
   );
 
   // --- Inputs / Sources
   on("InputMuteStateChanged", ({ inputName, inputMuted }) =>
-    pushAndPersist({ t: nowISO(), type: "audio", msg: `${inputMuted ? "Muted" : "Unmuted"}: ${inputName}` }, mainWindow)
+    pushAndPersist(
+      {
+        t: nowISO(),
+        type: "audio",
+        msg: `${inputMuted ? "Muted" : "Unmuted"}: ${inputName}`,
+      },
+      mainWindow
+    )
   );
 
   on("InputVolumeChanged", ({ inputName, inputVolumeMul }) =>
-    pushAndPersist({ t: nowISO(), type: "audio", msg: `Volume changed: ${inputName} → ${inputVolumeMul.toFixed(3)}` }, mainWindow)
+    pushAndPersist(
+      {
+        t: nowISO(),
+        type: "audio",
+        msg: `Volume changed: ${inputName} → ${inputVolumeMul.toFixed(3)}`,
+      },
+      mainWindow
+    )
   );
 
   on("InputActiveStateChanged", ({ inputName, videoActive }) =>
-    pushAndPersist({ t: nowISO(), type: "source", msg: `Source ${videoActive ? "active" : "inactive"}: ${inputName}` }, mainWindow)
+    pushAndPersist(
+      {
+        t: nowISO(),
+        type: "source",
+        msg: `Source ${videoActive ? "active" : "inactive"}: ${inputName}`,
+      },
+      mainWindow
+    )
   );
 
-  on("SourceFilterEnableStateChanged", ({ sourceName, filterName, filterEnabled }) =>
-    pushAndPersist({ t: nowISO(), type: "filter", msg: `${filterEnabled ? "Enabled" : "Disabled"} filter '${filterName}' on ${sourceName}` }, mainWindow)
+  on(
+    "SourceFilterEnableStateChanged",
+    ({ sourceName, filterName, filterEnabled }) =>
+      pushAndPersist(
+        {
+          t: nowISO(),
+          type: "filter",
+          msg: `${
+            filterEnabled ? "Enabled" : "Disabled"
+          } filter '${filterName}' on ${sourceName}`,
+        },
+        mainWindow
+      )
   );
 
   // --- Studio Mode
   on("StudioModeStateChanged", ({ studioModeEnabled }) =>
-    pushAndPersist({ t: nowISO(), type: "studio", msg: `Studio Mode ${studioModeEnabled ? "enabled" : "disabled"}` }, mainWindow)
+    pushAndPersist(
+      {
+        t: nowISO(),
+        type: "studio",
+        msg: `Studio Mode ${studioModeEnabled ? "enabled" : "disabled"}`,
+      },
+      mainWindow
+    )
   );
 
   // --- Transitions
   on("CurrentSceneTransitionChanged", ({ transitionName }) =>
-    pushAndPersist({ t: nowISO(), type: "transition", msg: `Transition changed → ${transitionName}` }, mainWindow)
+    pushAndPersist(
+      {
+        t: nowISO(),
+        type: "transition",
+        msg: `Transition changed → ${transitionName}`,
+      },
+      mainWindow
+    )
   );
 
   on("SceneTransitionEnded", ({ transitionName, fromSceneName, toSceneName }) =>
-    pushAndPersist({ t: nowISO(), type: "transition", msg: `Transition '${transitionName}' ended: ${fromSceneName} → ${toSceneName}` }, mainWindow)
+    pushAndPersist(
+      {
+        t: nowISO(),
+        type: "transition",
+        msg: `Transition '${transitionName}' ended: ${fromSceneName} → ${toSceneName}`,
+      },
+      mainWindow
+    )
   );
+}
+
+export function detachOpsLog(obs) {
+  if (!obs) return;
+
+  const handlers = handlerRegistry.get(obs);
+  if (!handlers?.length) {
+    handlerRegistry.delete(obs);
+    return;
+  }
+
+  for (const { event, listener } of handlers) {
+    if (typeof obs.off === "function") {
+      obs.off(event, listener);
+    } else if (typeof obs.removeListener === "function") {
+      obs.removeListener(event, listener);
+    }
+  }
+
+  handlerRegistry.delete(obs);
 }
